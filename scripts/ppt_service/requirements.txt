@@ -5,6 +5,5 @@ python-dotenv==1.1.0
 pydantic==2.11.3
 requests==2.32.3
 openpyxl==3.1.5
-supabase>=2.0
-# The reportgen library is not on PyPI — install it editable:
-#   pip install -e ../../pptx
+supabase==2.16.0
+python-pptx

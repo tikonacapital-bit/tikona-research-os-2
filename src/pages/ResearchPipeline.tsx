@@ -32,7 +32,9 @@ import {
   mirrorFinancialModelToStorage,
   unpublishReport,
   getReportBySession,
+  createResearchReport,
 } from '@/lib/api';
+import type { ResearchReport } from '@/types/database';
 import { createRecommendation, hasRecommendationForSession } from '@/lib/recommendations-api';
 import type { RecommendationRating } from '@/types/recommendations';
 import { runStage0, runStage1, runStage2, DEFAULT_PROMPTS, summarizeVaultDocuments } from '@/lib/anthropic-pipeline';
@@ -107,6 +109,7 @@ export default function ResearchPipeline() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [session, setSession] = useState<PipelineSession | null>(null);
   const [isCreatingSession, setIsCreatingSession] = useState(false);
+  const [initialReport, setInitialReport] = useState<ResearchReport | null>(null);
 
   // --- Vault & Documents ---
   const [vaultStatus, setVaultStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
@@ -554,6 +557,15 @@ export default function ResearchPipeline() {
       stage === 'stage1' ? 'stage1_approved' : 'stage2_approved';
     try {
       await transitionPipelineStatus(sessionId, newStatus, pipelineStatus);
+      if (stage === 'stage2' && session) {
+        const report = await createResearchReport({
+          session_id: sessionId,
+          user_email: user?.email || '',
+          company_name: session.company_name,
+          nse_symbol: session.company_nse_code,
+        });
+        setInitialReport(report);
+      }
       setPipelineStatus(newStatus);
       const updated = await getPipelineSession(sessionId);
       if (updated) setSession(updated);
@@ -1322,6 +1334,7 @@ export default function ResearchPipeline() {
                 financialModelFileUrl={financialModelFileUrl}
                 userEmail={user?.email || ''}
                 stage2Sections={stage2Sections}
+                initialReport={initialReport}
                 onPublished={handlePublish}
               />
             )}

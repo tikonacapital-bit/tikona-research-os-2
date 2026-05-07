@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
 import {
   getReportBySession,
+  createResearchReport,
   publishReport,
   generatePptx,
   PPT_SERVICE_URL,
@@ -125,12 +126,22 @@ export default function PostProductionPanel({
       restoreFromReport(initialReport);
       return;
     }
-    getReportBySession(sessionId).then((report) => {
-      if (report) restoreFromReport(report);
+    getReportBySession(sessionId).then(async (report) => {
+      if (report) {
+        restoreFromReport(report);
+      } else {
+        const created = await createResearchReport({
+          session_id: sessionId,
+          user_email: userEmail,
+          company_name: companyName,
+          nse_symbol: nseSymbol,
+        });
+        restoreFromReport(created);
+      }
     }).catch((error) => {
-      console.error('[PostProduction] Failed to load report by session', { sessionId, error });
+      console.error('[PostProduction] Failed to load/create report', { sessionId, error });
     });
-  }, [initialReport, sessionId]);
+  }, [initialReport, sessionId, userEmail, companyName, nseSymbol]);
 
   function restoreFromReport(report: ResearchReport) {
     setReportId(report.report_id);

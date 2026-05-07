@@ -31,3 +31,15 @@ dist-ssr
 
 # Vercel
 .vercel
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyc
+*.pyc.*
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
