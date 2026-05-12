@@ -447,7 +447,7 @@ class SensitivityPe(BaseModel):
 class Valuation(BaseModel):
     dcf_fair_value: float
     pe_fair_value: float
-    ev_ebitda_fair_value: float
+    ev_ebitda_fair_value: Optional[float] = None
     blended_fair_value: float
     sensitivity_pe: SensitivityPe
 
@@ -471,7 +471,7 @@ class Assumptions(BaseModel):
     inventory_days: dict[str, float]
     dividend_payout_pct: float
     target_pe: float
-    target_ev_ebitda: float
+    target_ev_ebitda: Optional[float] = None
     wacc_pct: float
     terminal_growth_pct: float
     rationale: str
@@ -511,7 +511,7 @@ class Peer(BaseModel):
     name: str
     mcap_cr: float
     pe: float
-    ev_ebitda: float
+    ev_ebitda: Optional[float] = None
     ebitda_margin_pct: Any
     roe_pct: float
 
@@ -933,6 +933,14 @@ STEP 6 — VALUATION (3 methods):
 - Blended (DCF 40%, PE 30%, EV/EBITDA 30%)
 - Sensitivity 5x5 grid: PE Multiple vs EPS Growth %
 
+IMPORTANT FOR BANKS / NBFCs / INSURERS / OTHER FINANCIALS:
+- EV/EBITDA is often not meaningful for these businesses.
+- If EV/EBITDA is not applicable, return null for:
+  assumptions.target_ev_ebitda
+  valuation.ev_ebitda_fair_value
+  peers[*].ev_ebitda
+- In that case, rely primarily on PE / P/B / earnings-based logic.
+
 STEP 7 — PEER COMPARISON: 4+ listed peers with current MCap, PE, EV/EBITDA, EBITDA Margin, ROE.
 
 STEP 8 — INVESTMENT THESIS with SAARTHI scoring (S+A+A+R+T+H+I = 100 max):
@@ -1002,7 +1010,7 @@ Return ONLY valid JSON. Start with {{ end with }}. No prose, no markdown fences.
     "tax_rate_pct": {{...}}, "capex_cr": {{...}},
     "receivable_days": {{...}}, "inventory_days": {{...}},
     "dividend_payout_pct": number,
-    "target_pe": number, "target_ev_ebitda": number,
+    "target_pe": number, "target_ev_ebitda": number|null,
     "wacc_pct": number, "terminal_growth_pct": number,
     "rationale": str
   }},
@@ -1026,13 +1034,13 @@ Return ONLY valid JSON. Start with {{ end with }}. No prose, no markdown fences.
   }},
   "valuation": {{
     "dcf_fair_value":number, "pe_fair_value":number,
-    "ev_ebitda_fair_value":number, "blended_fair_value":number,
+    "ev_ebitda_fair_value":number|null, "blended_fair_value":number,
     "sensitivity_pe": {{
       "row_label":"PE Multiple", "col_label":"EPS Growth %",
       "row_values":[5], "col_values":[5], "grid":[[5x5]]
     }}
   }},
-  "peers": [{{"name":str,"mcap_cr":n,"pe":n,"ev_ebitda":n,"ebitda_margin_pct":str,"roe_pct":n}}],
+  "peers": [{{"name":str,"mcap_cr":n,"pe":n,"ev_ebitda":n|null,"ebitda_margin_pct":str,"roe_pct":n}}],
   "thesis": {{
     "investment_thesis":str, "bull_case":str, "bear_case":str,
     "key_catalysts":[4], "key_risks":[4],
@@ -1374,6 +1382,63 @@ def _safe_num(v, default=0.0):
         return default
 
 
+def _series_growth(values: list[object]) -> list[float | None]:
+    out: list[float | None] = []
+    prev = None
+    for value in values:
+        cur = _safe_num(value, None)
+        if prev in (None, 0) or cur is None:
+            out.append(None)
+        else:
+            out.append((cur / prev) - 1)
+        prev = cur
+    return out
+
+
+def _avg_non_null(values: list[object], default: float = 0.0) -> float:
+    nums = [_safe_num(v, None) for v in values]
+    nums = [v for v in nums if v is not None]
+    return sum(nums) / len(nums) if nums else default
+
+
+def _median_non_null(values: list[object], default: float = 0.0) -> float:
+    nums = [_safe_num(v, None) for v in values]
+    nums = sorted(v for v in nums if v is not None)
+    if not nums:
+        return default
+    mid = len(nums) // 2
+    if len(nums) % 2:
+        return nums[mid]
+    return (nums[mid - 1] + nums[mid]) / 2
+
+
+BRAND_CHART_COLORS = [
+    COLORS["navy"],
+    COLORS["med_blue"],
+    COLORS["orange"],
+    COLORS["peach"],
+]
+
+
+def _apply_chart_branding(chart) -> None:
+    """Force charts to use the Tikona brand palette."""
+    for idx, ser in enumerate(getattr(chart, "ser", []) or []):
+        color = BRAND_CHART_COLORS[idx % len(BRAND_CHART_COLORS)]
+        try:
+            ser.graphicalProperties.solidFill = color
+            ser.graphicalProperties.line.solidFill = color
+        except Exception:
+            pass
+        try:
+            if getattr(ser, "marker", None) is not None:
+                ser.marker.symbol = "circle"
+                ser.marker.size = 6
+                ser.marker.graphicalProperties.solidFill = color
+                ser.marker.graphicalProperties.line.solidFill = color
+        except Exception:
+            pass
+
+
 def _ext_hist_value(ctx, hist_key, year):
     hr = ctx["hist_ratios"]
     years = hr.get("years", []) if isinstance(hr, dict) else []
@@ -1460,10 +1525,10 @@ def mk_fin_summary(wb, ctx):
     ws, _ = _ext_new_sheet(wb, "Fin_Summary")
     sd = ctx["sd"]
     hist_years = sd["fiscal_years"]
-    dh = min(len(hist_years), 5)
+    dh = min(len(hist_years), 3)
     hist_disp = hist_years[-dh:] if dh else []
     hist_disp_lbl = [f"{y}A" for y in hist_disp]
-    proj_years = ctx["proj_years"]
+    proj_years = ctx["proj_years"][:2]
     years_all = hist_disp + proj_years
     years_disp_lbl = hist_disp_lbl + proj_years
     ncols = 1 + len(years_all)
@@ -2491,6 +2556,7 @@ def mk_peer_compare(wb, ctx):
         bar.set_categories(cats_ref)
         bar.width = 18
         bar.height = 10
+        _apply_chart_branding(bar)
         ws.add_chart(bar, "B40")
 
         margin_data_row = chart_data_row + len(rev_rows) + 4
@@ -2514,6 +2580,7 @@ def mk_peer_compare(wb, ctx):
         line.set_categories(c_ref)
         line.width = 18
         line.height = 10
+        _apply_chart_branding(line)
         ws.add_chart(line, "B58")
     except Exception as ex:
         logger.warning("⚠ Peer compare charts skipped: %s", ex)
@@ -2998,6 +3065,7 @@ def mk_op_charts(wb, ctx):
     def add_chart(chart, anchor):
         chart.width = 18
         chart.height = 12
+        _apply_chart_branding(chart)
         ws.add_chart(chart, anchor)
 
     # Chart 1: Revenue / EBITDA / PAT bar
@@ -3075,6 +3143,502 @@ def mk_op_charts(wb, ctx):
     bar6.add_data(data, titles_from_data=True, from_rows=True)
     bar6.set_categories(cats)
     add_chart(bar6, "K41")
+
+
+def mk_fin_summary(wb, ctx):
+    ws, _ = _ext_new_sheet(wb, "Fin_Summary")
+    sd = ctx["sd"]
+    hist_years = sd["fiscal_years"]
+    hist_disp = hist_years[-3:] if len(hist_years) >= 3 else hist_years
+    hist_disp_lbl = [f"{y}A" for y in hist_disp]
+    proj_years = ctx["proj_years"][:2]
+    years_all = hist_disp + proj_years
+    years_disp_lbl = hist_disp_lbl + proj_years
+    ncols = 1 + len(years_all)
+    h_count = len(hist_disp)
+    p_count = len(proj_years)
+    shares_cr = _safe_num(ctx["shares_cr"], 1.0) or 1.0
+    cmp = _safe_num(ctx["cmp"], 0.0)
+    mcap_cr = _safe_num(sd.get("mcap"), 0.0)
+
+    ws.column_dimensions["A"].width = 30
+    for i in range(len(years_all)):
+        ws.column_dimensions[get_column_letter(2 + i)].width = 13
+
+    _ext_title_banner(
+        ws,
+        f"{ctx['company_name']} - Financial Summary Dashboard",
+        f"Sector: {ctx['sector']} | 2 past + current + 2 forward | All figures Rs Cr",
+        ncols,
+    )
+
+    r = 4
+    _ext_year_header(ws, r, years_disp_lbl, h_count)
+    r += 1
+    alt = {"v": False}
+
+    def emit(label, fmt, vals):
+        nonlocal r
+        _ext_write_data_row(ws, r, label, vals, fmt, h_count, p_count, alt=alt["v"])
+        alt["v"] = not alt["v"]
+        r += 1
+
+    rev_vals = [_ext_screener_pl(ctx, "sales", y) for y in hist_disp] + [_ext_proj_revenue(ctx, y) for y in proj_years]
+    eb_vals = [_ext_hist_ebitda(ctx, y) for y in hist_disp]
+    pat_vals = [_ext_screener_pl(ctx, "net_profit", y) for y in hist_disp]
+    dep_vals = [_ext_screener_pl(ctx, "depreciation", y) for y in hist_disp]
+    pbt_vals = [_ext_screener_pl(ctx, "pbt", y) for y in hist_disp]
+    div_vals = [_ext_screener_pl(ctx, "dividend_amount", y) for y in hist_disp]
+    for i in range(p_count):
+        pat_p, eb_p, dep_p, _int_p, _oi, pbt_p, _tax = _ext_proj_pat(ctx, i)
+        eb_vals.append(eb_p)
+        dep_vals.append(dep_p)
+        pbt_vals.append(pbt_p)
+        pat_vals.append(pat_p)
+        div_vals.append(pat_p * (_safe_num(ctx["asmp"].get("dividend_payout_pct"), 0.0) / 100))
+    ebit_vals = [
+        (_safe_num(eb_vals[i]) - _safe_num(dep_vals[i])) if eb_vals[i] is not None and dep_vals[i] is not None else None
+        for i in range(len(years_all))
+    ]
+
+    _ext_section_divider(ws, r, ncols, "PROFIT & LOSS")
+    r += 1
+    alt["v"] = False
+    emit("Net Revenue (Rs Cr)", FMT_INR, rev_vals)
+    emit("Revenue Growth %", FMT_PCT, _series_growth(rev_vals))
+    emit("EBITDA (Rs Cr)", FMT_INR, eb_vals)
+    emit("PAT (Rs Cr)", FMT_INR, pat_vals)
+    emit("PAT Margin %", FMT_PCT, [
+        (_safe_num(pat_vals[i]) / _safe_num(rev_vals[i])) if _safe_num(rev_vals[i]) else None
+        for i in range(len(years_all))
+    ])
+    emit("PAT Growth %", FMT_PCT, _series_growth(pat_vals))
+    emit("EPS (Rs)", FMT_PER_SHARE, [(_safe_num(v) / shares_cr) if v is not None else None for v in pat_vals])
+    emit("DPS (Rs)", FMT_PER_SHARE, [(_safe_num(v) / shares_cr) if v is not None else None for v in div_vals])
+
+    _ext_section_divider(ws, r, ncols, "BALANCE SHEET")
+    r += 1
+    alt["v"] = False
+    sc_vals = [_ext_screener_pl(ctx, "share_capital", y) for y in hist_disp] + [_ext_proj_val(ctx, "share_capital", i) for i in range(p_count)]
+    res_vals = [_ext_screener_pl(ctx, "reserves", y) for y in hist_disp] + [_ext_proj_val(ctx, "reserves", i) for i in range(p_count)]
+    borr_vals = [_ext_screener_pl(ctx, "borrowings", y) for y in hist_disp] + [_ext_proj_val(ctx, "borrowings", i) for i in range(p_count)]
+    nb_vals = [_ext_screener_pl(ctx, "net_block", y) for y in hist_disp] + [_ext_proj_val(ctx, "net_block", i) for i in range(p_count)]
+    recv_vals = [_ext_screener_pl(ctx, "receivables", y) for y in hist_disp]
+    inv_vals = [_ext_screener_pl(ctx, "inventory", y) for y in hist_disp]
+    for i in range(p_count):
+        rev_i = _safe_num(ctx["projected_revenues"][i], 0.0)
+        recv_vals.append(rev_i * _ext_av(ctx, "receivable_days", proj_years[i]) / 365)
+        rm_i = rev_i * _ext_av(ctx, "rm_pct", proj_years[i]) / 100
+        inv_vals.append(rm_i * _ext_av(ctx, "inventory_days", proj_years[i]) / 365)
+    nw_vals = [(_safe_num(sc_vals[i]) + _safe_num(res_vals[i])) for i in range(len(years_all))]
+    ce_vals = [(_safe_num(nw_vals[i]) + _safe_num(borr_vals[i])) for i in range(len(years_all))]
+    wc_vals = [(_safe_num(recv_vals[i]) + _safe_num(inv_vals[i])) for i in range(len(years_all))]
+    emit("Net Worth (Rs Cr)", FMT_INR, nw_vals)
+    emit("Total Debt (Rs Cr)", FMT_INR, borr_vals)
+    emit("Capital Employed (Rs Cr)", FMT_INR, ce_vals)
+    emit("Net Fixed Assets (Rs Cr)", FMT_INR, nb_vals)
+    emit("Working Capital (Rs Cr)", FMT_INR, wc_vals)
+    emit("Debt/Equity (x)", FMT_MULT, [
+        (_safe_num(borr_vals[i]) / _safe_num(nw_vals[i])) if _safe_num(nw_vals[i]) else None
+        for i in range(len(years_all))
+    ])
+
+    _ext_section_divider(ws, r, ncols, "CASH FLOWS")
+    r += 1
+    alt["v"] = False
+    cfo_vals = [_ext_screener_pl(ctx, "cfo", y) for y in hist_disp] + [_ext_proj_val(ctx, "cfo", i) for i in range(p_count)]
+    cfi_vals = [_ext_screener_pl(ctx, "cfi", y) for y in hist_disp] + [_ext_proj_val(ctx, "cfi", i) for i in range(p_count)]
+    capex_vals = [(-_safe_num(v)) if v is not None else None for v in cfi_vals[:h_count]] + [_ext_av(ctx, "capex_cr", y) for y in proj_years]
+    fcf_vals = [
+        (_safe_num(cfo_vals[i]) - _safe_num(capex_vals[i])) if (cfo_vals[i] is not None or capex_vals[i] is not None) else None
+        for i in range(len(years_all))
+    ]
+    emit("CFO (Rs Cr)", FMT_INR, cfo_vals)
+    emit("Capex (Rs Cr)", FMT_INR, capex_vals)
+    emit("Free Cash Flow (Rs Cr)", FMT_INR, fcf_vals)
+    emit("CFO/EBITDA %", FMT_PCT, [
+        (_safe_num(cfo_vals[i]) / _safe_num(eb_vals[i])) if _safe_num(eb_vals[i]) else None
+        for i in range(len(years_all))
+    ])
+
+    _ext_section_divider(ws, r, ncols, "KEY RATIOS")
+    r += 1
+    alt["v"] = False
+    roe_vals = [_ext_hist_value(ctx, "roe_pct", y) for y in hist_disp]
+    roce_vals = [_ext_hist_value(ctx, "roce_pct", y) for y in hist_disp]
+    dd_vals = [_ext_hist_value(ctx, "receivable_days", y) for y in hist_disp]
+    id_vals = [_ext_hist_value(ctx, "inventory_days", y) for y in hist_disp]
+    for i in range(p_count):
+        nw_i = _safe_num(nw_vals[h_count + i], 0)
+        ce_i = _safe_num(ce_vals[h_count + i], 0)
+        pat_i = _safe_num(pat_vals[h_count + i], 0)
+        ebit_i = _safe_num(ebit_vals[h_count + i], 0)
+        roe_vals.append((pat_i / nw_i * 100) if nw_i else None)
+        roce_vals.append((ebit_i / ce_i * 100) if ce_i else None)
+        dd_vals.append(_ext_av(ctx, "receivable_days", proj_years[i]))
+        id_vals.append(_ext_av(ctx, "inventory_days", proj_years[i]))
+    emit("ROE %", FMT_PCT, [(_safe_num(v) / 100) if v is not None else None for v in roe_vals])
+    emit("ROCE %", FMT_PCT, [(_safe_num(v) / 100) if v is not None else None for v in roce_vals])
+    emit("Debtor Days", FMT_DAYS, dd_vals)
+    emit("Inventory Days", FMT_DAYS, id_vals)
+
+    _ext_section_divider(ws, r, ncols, "VALUATIONS (AT CMP)")
+    r += 1
+    alt["v"] = False
+    eps_vals = [(_safe_num(v) / shares_cr) if v is not None else None for v in pat_vals]
+    bvps_vals = [(_safe_num(v) / shares_cr) if v is not None else None for v in nw_vals]
+    sps_vals = [(_safe_num(v) / shares_cr) if v is not None else None for v in rev_vals]
+    ev = mcap_cr + _safe_num(borr_vals[h_count - 1] if h_count else 0, 0)
+    emit("P/E (x)", FMT_MULT, [(cmp / v) if (v and v > 0) else None for v in eps_vals])
+    emit("P/B (x)", FMT_MULT, [(cmp / v) if (v and v > 0) else None for v in bvps_vals])
+    emit("P/S (x)", FMT_MULT, [(cmp / v) if (v and v > 0) else None for v in sps_vals])
+    emit("EV/EBITDA (x)", FMT_MULT, [(ev / _safe_num(eb_vals[i])) if _safe_num(eb_vals[i]) else None for i in range(len(years_all))])
+
+
+def mk_earnings_forecast(wb, ctx):
+    ws, _ = _ext_new_sheet(wb, "Earnings_Forecast")
+    sd = ctx["sd"]
+    hist_years = sd["fiscal_years"]
+    dh = min(len(hist_years), 5)
+    hist_disp = hist_years[-dh:] if dh else []
+    hist_disp_lbl = [f"{y}A" for y in hist_disp]
+    proj_years = ctx["proj_years"]
+    years_all = hist_disp + proj_years
+    years_disp_lbl = hist_disp_lbl + proj_years
+    ncols = 1 + len(years_all)
+    h_count = len(hist_disp)
+    p_count = len(proj_years)
+    shares_cr = _safe_num(ctx["shares_cr"], 1.0) or 1.0
+    op = (ctx.get("model") or {}).get("operational") or {}
+
+    ws.column_dimensions["A"].width = 32
+    for i in range(len(years_all)):
+        ws.column_dimensions[get_column_letter(2 + i)].width = 13
+
+    _ext_title_banner(
+        ws,
+        f"{ctx['company_name']} - Earnings Forecast",
+        "Income statement and drivers with historical/current context",
+        ncols,
+    )
+
+    r = 4
+    _ext_year_header(ws, r, years_disp_lbl, h_count)
+    r += 1
+    alt = {"v": False}
+
+    def emit(label, fmt, vals):
+        nonlocal r
+        _ext_write_data_row(ws, r, label, vals, fmt, h_count, p_count, alt=alt["v"])
+        alt["v"] = not alt["v"]
+        r += 1
+
+    rev_vals = [_ext_screener_pl(ctx, "sales", y) for y in hist_disp] + [_ext_proj_revenue(ctx, y) for y in proj_years]
+    rm_vals = [_ext_screener_pl(ctx, "raw_material", y) for y in hist_disp] + [
+        _safe_num(ctx["projected_revenues"][i]) * _ext_av(ctx, "rm_pct", proj_years[i]) / 100 for i in range(p_count)
+    ]
+    gp_vals = [
+        (_safe_num(rev_vals[i]) - _safe_num(rm_vals[i])) if (rev_vals[i] is not None and rm_vals[i] is not None) else None
+        for i in range(len(years_all))
+    ]
+    eb_vals = [_ext_hist_ebitda(ctx, y) for y in hist_disp]
+    dep_vals = [_ext_screener_pl(ctx, "depreciation", y) for y in hist_disp]
+    int_vals = [_ext_screener_pl(ctx, "interest", y) for y in hist_disp]
+    oi_vals = [_ext_screener_pl(ctx, "other_income", y) for y in hist_disp]
+    pbt_vals = [_ext_screener_pl(ctx, "pbt", y) for y in hist_disp]
+    tax_vals = [_ext_screener_pl(ctx, "tax", y) for y in hist_disp]
+    pat_vals = [_ext_screener_pl(ctx, "net_profit", y) for y in hist_disp]
+    for i in range(p_count):
+        pat_p, eb_p, dep_p, int_p, oi_p, pbt_p, tax_p = _ext_proj_pat(ctx, i)
+        eb_vals.append(eb_p)
+        dep_vals.append(dep_p)
+        int_vals.append(int_p)
+        oi_vals.append(oi_p)
+        pbt_vals.append(pbt_p)
+        tax_vals.append(tax_p)
+        pat_vals.append(pat_p)
+    ebit_vals = [
+        (_safe_num(eb_vals[i]) - _safe_num(dep_vals[i])) if (eb_vals[i] is not None and dep_vals[i] is not None) else None
+        for i in range(len(years_all))
+    ]
+
+    _ext_section_divider(ws, r, ncols, "INCOME STATEMENT")
+    r += 1
+    alt["v"] = False
+    emit("Revenue (Rs Cr)", FMT_INR, rev_vals)
+    emit("YoY Growth %", FMT_PCT, _series_growth(rev_vals))
+    emit("Gross Profit (Rs Cr)", FMT_INR, gp_vals)
+    emit("Gross Margin %", FMT_PCT, [
+        (_safe_num(gp_vals[i]) / _safe_num(rev_vals[i])) if _safe_num(rev_vals[i]) else None
+        for i in range(len(years_all))
+    ])
+    emit("EBITDA (Rs Cr)", FMT_INR, eb_vals)
+    emit("EBITDA Margin %", FMT_PCT, [
+        (_safe_num(eb_vals[i]) / _safe_num(rev_vals[i])) if _safe_num(rev_vals[i]) else None
+        for i in range(len(years_all))
+    ])
+    emit("EBITDA Growth %", FMT_PCT, _series_growth(eb_vals))
+    emit("Depreciation (Rs Cr)", FMT_INR, dep_vals)
+    emit("EBIT (Rs Cr)", FMT_INR, ebit_vals)
+    emit("Finance Costs (Rs Cr)", FMT_INR, int_vals)
+    emit("Other Income (Rs Cr)", FMT_INR, oi_vals)
+    emit("PBT (Rs Cr)", FMT_INR, pbt_vals)
+    emit("Tax (Rs Cr)", FMT_INR, tax_vals)
+    emit("Effective Tax Rate %", FMT_PCT, [
+        (_safe_num(tax_vals[i]) / _safe_num(pbt_vals[i])) if _safe_num(pbt_vals[i]) else None
+        for i in range(len(years_all))
+    ])
+    emit("PAT (Rs Cr)", FMT_INR, pat_vals)
+    emit("PAT Growth %", FMT_PCT, _series_growth(pat_vals))
+    emit("PAT Margin %", FMT_PCT, [
+        (_safe_num(pat_vals[i]) / _safe_num(rev_vals[i])) if _safe_num(rev_vals[i]) else None
+        for i in range(len(years_all))
+    ])
+
+    _ext_section_divider(ws, r, ncols, "PER SHARE DATA")
+    r += 1
+    alt["v"] = False
+    eps_vals = [(_safe_num(v) / shares_cr) if v is not None else None for v in pat_vals]
+    emit("EPS (Rs)", FMT_PER_SHARE, eps_vals)
+    emit("EPS Growth %", FMT_PCT, _series_growth(eps_vals))
+    payout = _safe_num(ctx["asmp"].get("dividend_payout_pct"), 0.0) / 100
+    emit("DPS (Rs)", FMT_PER_SHARE, [(_safe_num(v) * payout / shares_cr) if v is not None else None for v in pat_vals])
+    sc_vals = [_ext_screener_pl(ctx, "share_capital", y) for y in hist_disp] + [_ext_proj_val(ctx, "share_capital", i) for i in range(p_count)]
+    res_vals = [_ext_screener_pl(ctx, "reserves", y) for y in hist_disp] + [_ext_proj_val(ctx, "reserves", i) for i in range(p_count)]
+    emit("Book Value per Share (Rs)", FMT_PER_SHARE, [
+        ((_safe_num(sc_vals[i]) + _safe_num(res_vals[i])) / shares_cr) if (sc_vals[i] is not None or res_vals[i] is not None) else None
+        for i in range(len(years_all))
+    ])
+
+    volume_segments = op.get("volume_segments") or {}
+    total_volume = [None] * len(years_all)
+    if volume_segments:
+        op_years = list(op.get("years") or [])
+        for i, year_label in enumerate(years_disp_lbl):
+            total = 0.0
+            found = False
+            if year_label in op_years:
+                idx = op_years.index(year_label)
+                for series in volume_segments.values():
+                    if idx < len(series) and series[idx] is not None:
+                        total += _safe_num(series[idx], 0.0)
+                        found = True
+            total_volume[i] = total if found else None
+    volume_growth = _series_growth(total_volume)
+    realization_vals = [
+        ((_safe_num(rev_vals[i]) * 1e7) / _safe_num(total_volume[i])) if _safe_num(total_volume[i]) else None
+        for i in range(len(years_all))
+    ]
+    realization_growth = _series_growth(realization_vals)
+    if not any(v is not None for v in volume_growth):
+        revenue_growth = _series_growth(rev_vals)
+        volume_growth = [None if v is None else v for v in revenue_growth]
+        realization_growth = [0.0 if v is not None else None for v in revenue_growth]
+
+    _ext_section_divider(ws, r, ncols, "ASSUMPTIONS & DRIVERS")
+    r += 1
+    alt["v"] = False
+    emit("Volume Growth %", FMT_PCT, volume_growth)
+    emit("Realization Growth %", FMT_PCT, realization_growth)
+    emit("Revenue Growth %", FMT_PCT, _series_growth(rev_vals))
+    emit("EBITDA Margin %", FMT_PCT, [
+        (_safe_num(eb_vals[i]) / _safe_num(rev_vals[i])) if _safe_num(rev_vals[i]) else None
+        for i in range(len(years_all))
+    ])
+    capex_hist = [(-_safe_num(_ext_screener_pl(ctx, "cfi", y))) if _ext_screener_pl(ctx, "cfi", y) is not None else None for y in hist_disp]
+    emit("Capex (Rs Cr)", FMT_INR, capex_hist + [_ext_av(ctx, "capex_cr", y) for y in proj_years])
+    emit("Working Capital Days", FMT_DAYS, [
+        ((_safe_num(_ext_hist_value(ctx, "receivable_days", y)) + _safe_num(_ext_hist_value(ctx, "inventory_days", y))) if y in hist_disp else None)
+        for y in hist_disp
+    ] + [(_ext_av(ctx, "receivable_days", y) + _ext_av(ctx, "inventory_days", y)) for y in proj_years])
+
+
+def mk_valuations_table(wb, ctx):
+    ws, _ = _ext_new_sheet(wb, "Valuations_Table")
+    sd = ctx["sd"]
+    hist_years = sd["fiscal_years"]
+    dh = min(len(hist_years), 5)
+    hist_disp = hist_years[-dh:] if dh else []
+    hist_disp_lbl = [f"{y}A" for y in hist_disp]
+    proj_years = ctx["proj_years"]
+    years_all = hist_disp + proj_years
+    years_disp_lbl = hist_disp_lbl + proj_years
+    ncols = 1 + len(years_all)
+    h_count = len(hist_disp)
+    p_count = len(proj_years)
+    shares_cr = _safe_num(ctx["shares_cr"], 1.0) or 1.0
+    cmp = _safe_num(ctx["cmp"], 0.0)
+    mcap_cr = shares_cr * cmp
+    val = ctx["val"]
+    asmp = ctx["asmp"]
+
+    ws.column_dimensions["A"].width = 32
+    for i in range(len(years_all)):
+        ws.column_dimensions[get_column_letter(2 + i)].width = 13
+
+    _ext_title_banner(
+        ws,
+        f"{ctx['company_name']} - Valuation Matrix",
+        f"CMP: Rs{cmp:,.0f} | Target: Rs{_safe_num(ctx['target']):,.0f} | Rating: {ctx['rating']}",
+        ncols,
+    )
+
+    r = 4
+    _ext_year_header(ws, r, years_disp_lbl, h_count)
+    r += 1
+    alt = {"v": False}
+
+    def emit(label, fmt, vals):
+        nonlocal r
+        _ext_write_data_row(ws, r, label, vals, fmt, h_count, p_count, alt=alt["v"])
+        alt["v"] = not alt["v"]
+        r += 1
+
+    rev_vals = [_ext_screener_pl(ctx, "sales", y) for y in hist_disp] + [_ext_proj_revenue(ctx, y) for y in proj_years]
+    eb_vals = [_ext_hist_ebitda(ctx, y) for y in hist_disp]
+    pat_vals = [_ext_screener_pl(ctx, "net_profit", y) for y in hist_disp]
+    dep_vals = [_ext_screener_pl(ctx, "depreciation", y) for y in hist_disp]
+    sc_vals = [_ext_screener_pl(ctx, "share_capital", y) for y in hist_disp] + [_ext_proj_val(ctx, "share_capital", i) for i in range(p_count)]
+    res_vals = [_ext_screener_pl(ctx, "reserves", y) for y in hist_disp] + [_ext_proj_val(ctx, "reserves", i) for i in range(p_count)]
+    borr_vals = [_ext_screener_pl(ctx, "borrowings", y) for y in hist_disp] + [_ext_proj_val(ctx, "borrowings", i) for i in range(p_count)]
+    cfo_vals = [_ext_screener_pl(ctx, "cfo", y) for y in hist_disp] + [_ext_proj_val(ctx, "cfo", i) for i in range(p_count)]
+    for i in range(p_count):
+        pat_p, eb_p, dep_p, _i, _o, _p, _t = _ext_proj_pat(ctx, i)
+        eb_vals.append(eb_p)
+        dep_vals.append(dep_p)
+        pat_vals.append(pat_p)
+    ebit_vals = [
+        (_safe_num(eb_vals[i]) - _safe_num(dep_vals[i])) if (eb_vals[i] is not None and dep_vals[i] is not None) else None
+        for i in range(len(years_all))
+    ]
+    eps = [(_safe_num(v) / shares_cr) if v is not None else None for v in pat_vals]
+    bv = [
+        ((_safe_num(sc_vals[i]) + _safe_num(res_vals[i])) / shares_cr) if (sc_vals[i] is not None or res_vals[i] is not None) else None
+        for i in range(len(years_all))
+    ]
+    sps = [(_safe_num(v) / shares_cr) if v is not None else None for v in rev_vals]
+    ev_vals = [mcap_cr + _safe_num(borr_vals[i]) for i in range(len(years_all))]
+
+    _ext_section_divider(ws, r, ncols, "MARKET DATA")
+    r += 1
+    alt["v"] = False
+    emit("CMP (Rs)", FMT_PER_SHARE, [cmp] * len(years_all))
+    emit("Market Cap (Rs Cr)", FMT_INR, [mcap_cr] * len(years_all))
+    emit("Enterprise Value (Rs Cr)", FMT_INR, ev_vals)
+
+    _ext_section_divider(ws, r, ncols, "EARNINGS MULTIPLES")
+    r += 1
+    alt["v"] = False
+    pe_vals = [(cmp / v) if (v and v > 0) else None for v in eps]
+    ev_ebitda_vals = [(ev_vals[i] / _safe_num(eb_vals[i])) if _safe_num(eb_vals[i]) else None for i in range(len(years_all))]
+    emit("P/E (x)", FMT_MULT, pe_vals)
+    emit("P/B (x)", FMT_MULT, [(cmp / v) if (v and v > 0) else None for v in bv])
+    emit("P/Sales (x)", FMT_MULT, [(cmp / v) if (v and v > 0) else None for v in sps])
+    emit("EV/EBITDA (x)", FMT_MULT, ev_ebitda_vals)
+    emit("EV/Sales (x)", FMT_MULT, [(ev_vals[i] / _safe_num(rev_vals[i])) if _safe_num(rev_vals[i]) else None for i in range(len(years_all))])
+    emit("EV/EBIT (x)", FMT_MULT, [(ev_vals[i] / _safe_num(ebit_vals[i])) if _safe_num(ebit_vals[i]) else None for i in range(len(years_all))])
+
+    _ext_section_divider(ws, r, ncols, "PER SHARE")
+    r += 1
+    alt["v"] = False
+    emit("EPS (Rs)", FMT_PER_SHARE, eps)
+    emit("Book Value (Rs)", FMT_PER_SHARE, bv)
+    emit("Sales/Share (Rs)", FMT_PER_SHARE, sps)
+    emit("CFO/Share (Rs)", FMT_PER_SHARE, [(_safe_num(v) / shares_cr) if v is not None else None for v in cfo_vals])
+    payout = _safe_num(asmp.get("dividend_payout_pct"), 0.0) / 100
+    emit("DPS (Rs)", FMT_PER_SHARE, [(_safe_num(v) * payout / shares_cr) if v is not None else None for v in pat_vals])
+
+    _ext_section_divider(ws, r, ncols, "RETURN METRICS")
+    r += 1
+    alt["v"] = False
+    nw = [(_safe_num(sc_vals[i]) + _safe_num(res_vals[i])) for i in range(len(years_all))]
+    ce = [(_safe_num(nw[i]) + _safe_num(borr_vals[i])) for i in range(len(years_all))]
+    emit("ROE %", FMT_PCT, [(_safe_num(pat_vals[i]) / _safe_num(nw[i])) if _safe_num(nw[i]) else None for i in range(len(years_all))])
+    emit("ROCE %", FMT_PCT, [(_safe_num(ebit_vals[i]) / _safe_num(ce[i])) if _safe_num(ce[i]) else None for i in range(len(years_all))])
+    emit("Earnings Yield %", FMT_PCT, [(v / cmp) if (v is not None and cmp) else None for v in eps])
+    emit("Dividend Yield %", FMT_PCT, [(_safe_num(v) * payout / shares_cr / cmp) if (v is not None and cmp) else None for v in pat_vals])
+    capex_hist = [(-_safe_num(_ext_screener_pl(ctx, "cfi", y))) if _ext_screener_pl(ctx, "cfi", y) is not None else None for y in hist_disp]
+    capex_vals = capex_hist + [_ext_av(ctx, "capex_cr", y) for y in proj_years]
+    emit("FCF Yield %", FMT_PCT, [
+        ((_safe_num(cfo_vals[i]) - _safe_num(capex_vals[i])) / mcap_cr) if mcap_cr else None
+        for i in range(len(years_all))
+    ])
+
+    _ext_section_divider(ws, r, ncols, "ASSUMPTIONS")
+    r += 1
+    alt["v"] = False
+    emit("Revenue Growth %", FMT_PCT, _series_growth(rev_vals))
+    emit("EBITDA Margin %", FMT_PCT, [(_safe_num(eb_vals[i]) / _safe_num(rev_vals[i])) if _safe_num(rev_vals[i]) else None for i in range(len(years_all))])
+    emit("PAT Margin %", FMT_PCT, [(_safe_num(pat_vals[i]) / _safe_num(rev_vals[i])) if _safe_num(rev_vals[i]) else None for i in range(len(years_all))])
+    recv_days = [_ext_hist_value(ctx, "receivable_days", y) for y in hist_disp] + [_ext_av(ctx, "receivable_days", y) for y in proj_years]
+    inv_days = [_ext_hist_value(ctx, "inventory_days", y) for y in hist_disp] + [_ext_av(ctx, "inventory_days", y) for y in proj_years]
+    emit("Receivable Days", FMT_DAYS, recv_days)
+    emit("Inventory Days", FMT_DAYS, inv_days)
+    emit("WACC %", FMT_PCT, [(_safe_num(asmp.get("wacc_pct"), 11.0) / 100)] * len(years_all))
+    emit("Terminal Growth %", FMT_PCT, [(_safe_num(asmp.get("terminal_growth_pct"), 4.0) / 100)] * len(years_all))
+    emit("Target PE (x)", FMT_MULT, [_safe_num(asmp.get("target_pe"), 0.0)] * len(years_all))
+    emit("Target EV/EBITDA (x)", FMT_MULT, [asmp.get("target_ev_ebitda")] * len(years_all))
+
+    peer_pe_vals = [_safe_num(p.get("pe"), None) for p in (ctx.get("peers") or []) if p.get("pe") is not None]
+    peer_ev_vals = [_safe_num(p.get("ev_ebitda"), None) for p in (ctx.get("peers") or []) if p.get("ev_ebitda") is not None]
+    peer_pe_med = _avg_non_null(peer_pe_vals, 0.0) if peer_pe_vals else None
+    peer_ev_med = _avg_non_null(peer_ev_vals, 0.0) if peer_ev_vals else None
+    _ext_section_divider(ws, r, ncols, "PEER VALUATION COMPARISON")
+    r += 1
+    alt["v"] = False
+    emit("Company P/E (x)", FMT_MULT, pe_vals)
+    emit("Peer Avg P/E (x)", FMT_MULT, [peer_pe_med] * len(years_all))
+    emit("P/E Premium / (Discount) %", FMT_PCT, [
+        ((_safe_num(pe_vals[i]) / peer_pe_med) - 1) if peer_pe_med and pe_vals[i] is not None else None
+        for i in range(len(years_all))
+    ])
+    emit("Company EV/EBITDA (x)", FMT_MULT, ev_ebitda_vals)
+    emit("Peer Avg EV/EBITDA (x)", FMT_MULT, [peer_ev_med] * len(years_all))
+    emit("EV/EBITDA Premium / (Discount) %", FMT_PCT, [
+        ((_safe_num(ev_ebitda_vals[i]) / peer_ev_med) - 1) if peer_ev_med and ev_ebitda_vals[i] is not None else None
+        for i in range(len(years_all))
+    ])
+
+    _ext_section_divider(ws, r, ncols, "VALUATION SUMMARY")
+    r += 1
+    alt["v"] = False
+    emit("DCF Fair Value (Rs)", FMT_PER_SHARE, [_safe_num(val.get("dcf_fair_value"), 0.0)] * len(years_all))
+    emit("PE Fair Value (Rs)", FMT_PER_SHARE, [_safe_num(val.get("pe_fair_value"), 0.0)] * len(years_all))
+    emit("EV/EBITDA Fair Value (Rs)", FMT_PER_SHARE, [val.get("ev_ebitda_fair_value")] * len(years_all))
+    emit("Blended Fair Value (Rs)", FMT_PER_SHARE, [_safe_num(val.get("blended_fair_value"), 0.0)] * len(years_all))
+
+    sens = val.get("sensitivity_pe") or {}
+    if sens.get("row_values") and sens.get("col_values"):
+        r += 1
+        _ext_section_divider(ws, r, ncols, "PE SENSITIVITY (FORMULA-LINKED)")
+        r += 1
+        header_row = r
+        ws.cell(row=r, column=1, value=f"{sens.get('row_label','PE')} \\ {sens.get('col_label','EPS Growth')}").font = _ext_hdr_font
+        ws.cell(row=r, column=1).fill = _ext_navy_fill
+        ws.cell(row=r, column=1).border = _ext_thin_border
+        ws.cell(row=r, column=1).alignment = _ext_center
+        for ci, cv in enumerate(sens.get("col_values", []), 2):
+            c = ws.cell(row=r, column=ci, value=cv)
+            c.fill = _ext_navy_fill
+            c.font = _ext_hdr_font
+            c.border = _ext_thin_border
+            c.alignment = _ext_center
+            c.number_format = "0.0"
+        r += 1
+        eps_base = _safe_num(eps[h_count + 1] if len(eps) > h_count + 1 else eps[-1], 0.0)
+        for rv in sens.get("row_values", []):
+            ws.cell(row=r, column=1, value=rv).font = _ext_hdr_font
+            ws.cell(row=r, column=1).fill = _ext_navy_fill
+            ws.cell(row=r, column=1).border = _ext_thin_border
+            ws.cell(row=r, column=1).alignment = _ext_center
+            ws.cell(row=r, column=1).number_format = FMT_MULT
+            for ci, _cv in enumerate(sens.get("col_values", []), 2):
+                cl = get_column_letter(ci)
+                cell = ws.cell(row=r, column=ci, value=f"=$A{r}*{eps_base:.6f}*(1+{cl}{header_row}/100)")
+                cell.number_format = FMT_INR
+                cell.border = _ext_thin_border
+                cell.alignment = _ext_center
+            r += 1
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -3235,6 +3799,35 @@ def build_model(screener_path: str, screener_data: dict, model: dict, out_path: 
     )
     ws[f"A{r}"].font = Font(name="Arial", bold=True, color=COLORS["navy"], size=13)
     ws[f"A{r}"].fill = PatternFill("solid", fgColor=COLORS["peach"])
+    saarthi_scores = thesis.get("saarthi_scores", {}) or {}
+    score_rows = [
+        ("Sector", saarthi_scores.get("S_sector_quality")),
+        ("Accounting", saarthi_scores.get("A_accounting_quality")),
+        ("Asset", saarthi_scores.get("A_asset_quality")),
+        ("Revenue", saarthi_scores.get("R_revenue_visibility")),
+        ("Track Record", saarthi_scores.get("T_track_record")),
+        ("Balance Sheet", saarthi_scores.get("H_balance_sheet_health")),
+        ("Valuation", saarthi_scores.get("I_intrinsic_valuation")),
+    ]
+    for addr, value in [("D4", "SAARTHI Breakdown"), ("E4", "Score")]:
+        ws[addr] = value
+        ws[addr].font = hdr_font
+        ws[addr].fill = navy_fill
+        ws[addr].alignment = center
+        ws[addr].border = thin_bdr
+    for score_row, (label, value) in enumerate(score_rows, 5):
+        ws.cell(row=score_row, column=4, value=label).font = data_font
+        score_cell = ws.cell(row=score_row, column=5, value=value)
+        score_cell.font = data_font
+        score_cell.number_format = INR2
+        for ci in (4, 5):
+            ws.cell(row=score_row, column=ci).border = thin_bdr
+    for ci, value in ((4, "Total"), (5, thesis.get("saarthi_total"))):
+        ws.cell(row=13, column=ci, value=value)
+        ws.cell(row=13, column=ci).font = sec_font
+        ws.cell(row=13, column=ci).fill = peach_fill
+        ws.cell(row=13, column=ci).border = thin_bdr
+    ws["E13"].number_format = INR2
     logger.info("  ✅ Cover")
 
     # ═══ ASSUMPTIONS ═══
@@ -3243,6 +3836,68 @@ def build_model(screener_path: str, screener_data: dict, model: dict, out_path: 
     hdr_r(ws, 1, year_labels, nc)
     for ci in p_cols:
         ws.cell(row=1, column=ci).fill = orange_fill
+
+    def hist_assumption_value(assum_key: str, year: str):
+        if year not in hist_years:
+            return None
+        idx = hist_years.index(year)
+        sales = _safe_num(sd["pl"]["sales"][idx] if idx < len(sd["pl"]["sales"]) else None, None)
+        raw_material = _safe_num(sd["pl"]["raw_material"][idx] if idx < len(sd["pl"]["raw_material"]) else None, None)
+        employee = _safe_num(sd["pl"]["employee_cost"][idx] if idx < len(sd["pl"]["employee_cost"]) else None, None)
+        power_fuel = _safe_num(sd["pl"]["power_fuel"][idx] if idx < len(sd["pl"]["power_fuel"]) else None, None)
+        other_mfg = _safe_num(sd["pl"]["other_mfg"][idx] if idx < len(sd["pl"]["other_mfg"]) else None, None)
+        selling_admin = _safe_num(sd["pl"]["selling_admin"][idx] if idx < len(sd["pl"]["selling_admin"]) else None, None)
+        other_exp = _safe_num(sd["pl"]["other_expenses"][idx] if idx < len(sd["pl"]["other_expenses"]) else None, None)
+        change_inventory = _safe_num(sd["pl"]["change_in_inventory"][idx] if idx < len(sd["pl"]["change_in_inventory"]) else None, None)
+        depreciation = _safe_num(sd["pl"]["depreciation"][idx] if idx < len(sd["pl"]["depreciation"]) else None, None)
+        interest = _safe_num(sd["pl"]["interest"][idx] if idx < len(sd["pl"]["interest"]) else None, None)
+        other_income = _safe_num(sd["pl"]["other_income"][idx] if idx < len(sd["pl"]["other_income"]) else None, None)
+        pbt = _safe_num(sd["pl"]["pbt"][idx] if idx < len(sd["pl"]["pbt"]) else None, None)
+        tax = _safe_num(sd["pl"]["tax"][idx] if idx < len(sd["pl"]["tax"]) else None, None)
+        receivables = _safe_num(sd["bs"]["receivables"][idx] if idx < len(sd["bs"]["receivables"]) else None, None)
+        inventory = _safe_num(sd["bs"]["inventory"][idx] if idx < len(sd["bs"]["inventory"]) else None, None)
+        cash = _safe_num(sd["bs"]["cash"][idx] if idx < len(sd["bs"]["cash"]) else None, None)
+        total_assets = _safe_num(sd["bs"]["total_assets"][idx] if idx < len(sd["bs"]["total_assets"]) else None, None)
+        if assum_key == "revenue_growth_pct":
+            if idx == 0:
+                return None
+            prev_sales = _safe_num(sd["pl"]["sales"][idx - 1] if idx - 1 < len(sd["pl"]["sales"]) else None, None)
+            return ((sales / prev_sales) - 1) * 100 if sales is not None and prev_sales not in (None, 0) else None
+        if assum_key == "rm_pct":
+            return (raw_material / sales) * 100 if sales not in (None, 0) and raw_material is not None else None
+        if assum_key == "employee_pct":
+            return (employee / sales) * 100 if sales not in (None, 0) and employee is not None else None
+        if assum_key == "power_fuel_pct":
+            return (power_fuel / sales) * 100 if sales not in (None, 0) and power_fuel is not None else None
+        if assum_key == "other_mfg_pct":
+            return (other_mfg / sales) * 100 if sales not in (None, 0) and other_mfg is not None else None
+        if assum_key == "selling_admin_pct":
+            return (selling_admin / sales) * 100 if sales not in (None, 0) and selling_admin is not None else None
+        if assum_key == "other_exp_pct":
+            return (other_exp / sales) * 100 if sales not in (None, 0) and other_exp is not None else None
+        if assum_key == "chg_inventory_pct":
+            return (change_inventory / sales) * 100 if sales not in (None, 0) and change_inventory is not None else None
+        if assum_key == "depreciation_cr":
+            return depreciation
+        if assum_key == "interest_cr":
+            return interest
+        if assum_key == "other_income_cr":
+            return other_income
+        if assum_key == "tax_rate_pct":
+            return (tax / pbt) * 100 if pbt not in (None, 0) and tax is not None else None
+        if assum_key == "capex_cr":
+            cfi = _safe_num(sd["cf"]["cfi"][idx] if idx < len(sd["cf"]["cfi"]) else None, None)
+            return (-cfi) if cfi is not None else None
+        if assum_key == "receivable_days":
+            return (receivables / sales) * 365 if sales not in (None, 0) and receivables is not None else None
+        if assum_key == "inventory_days":
+            return (inventory / raw_material) * 365 if raw_material not in (None, 0) and inventory is not None else None
+        if assum_key == "other_assets_pct":
+            other_assets_actual = (
+                total_assets - _safe_num(receivables, 0) - _safe_num(inventory, 0) - _safe_num(cash, 0)
+            ) if total_assets is not None else None
+            return (other_assets_actual / sales) * 100 if sales not in (None, 0) and other_assets_actual is not None else None
+        return None
 
     assum_items = [
         ("Revenue Growth %", "revenue_growth_pct", None, RATIO),
@@ -3260,21 +3915,40 @@ def build_model(screener_path: str, screener_data: dict, model: dict, out_path: 
         ("Capex (₹ Cr)", "capex_cr", None, INR),
         ("Receivable Days", "receivable_days", "receivable_days", "0"),
         ("Inventory Days", "inventory_days", "inventory_days", "0"),
+        ("Other Assets % of Revenue", "other_assets_pct", None, RATIO),
     ]
+    assum_row_map = {}
     for r_idx, (label, assum_key, hist_key, fmt) in enumerate(assum_items, 2):
+        assum_row_map[assum_key] = r_idx
         ws.cell(row=r_idx, column=1, value=label).font = data_font
-        if hist_key and hist_key in hist_ratios:
-            hr_vals = hist_ratios[hist_key]
-            hr_years = hist_ratios.get("years", [])
-            for ci, yr in zip(h_cols, disp_hist):
-                if yr in hr_years:
-                    idx = hr_years.index(yr)
-                    if idx < len(hr_vals) and hr_vals[idx] is not None:
-                        c = ws.cell(row=r_idx, column=ci, value=hr_vals[idx])
-                        c.number_format = fmt
+        for ci, yr in zip(h_cols, disp_hist):
+            lookup_year = yr[:-1] if isinstance(yr, str) and yr.endswith(("A", "E")) else yr
+            hist_val = None
+            if hist_key and hist_key in hist_ratios:
+                hr_vals = hist_ratios[hist_key]
+                hr_years = hist_ratios.get("years", [])
+                if lookup_year in hr_years:
+                    idx = hr_years.index(lookup_year)
+                    if idx < len(hr_vals):
+                        hist_val = hr_vals[idx]
+            if hist_val is None:
+                hist_val = hist_assumption_value(assum_key, lookup_year)
+            if hist_val is not None:
+                c = ws.cell(row=r_idx, column=ci, value=hist_val)
+                c.number_format = fmt
         for ci, yr in zip(p_cols, proj_years):
+            if assum_key == "other_assets_pct":
+                hist_ref_cols = h_cols[-min(5, len(h_cols)):] if h_cols else []
+                if hist_ref_cols:
+                    start_cl = get_column_letter(hist_ref_cols[0])
+                    end_cl = get_column_letter(hist_ref_cols[-1])
+                    c = ws.cell(row=r_idx, column=ci, value=f"=MEDIAN({start_cl}{r_idx}:{end_cl}{r_idx})")
+                    c.number_format = fmt
+                    c.font = input_font
+                    c.fill = peach_fill
+                continue
             v = av(assum_key, yr)
-            if v is not None and v != 0:
+            if v is not None:
                 c = ws.cell(row=r_idx, column=ci, value=v)
                 c.number_format = fmt
                 c.font = input_font
@@ -3317,7 +3991,7 @@ def build_model(screener_path: str, screener_data: dict, model: dict, out_path: 
         ws.cell(row=2, column=ci).fill = orange_fill
 
     A_GROWTH, A_RM, A_EMP, A_PF, A_OMFG, A_SA, A_OE, A_CI = 2, 3, 4, 5, 6, 7, 8, 9
-    A_DEP, A_INT, A_OI, A_TAX, A_CAPEX, A_RECV, A_INV = 10, 11, 12, 13, 14, 15, 16
+    A_DEP, A_INT, A_OI, A_TAX, A_CAPEX, A_RECV, A_INV, A_OA = 10, 11, 12, 13, 14, 15, 16, 17
 
     r = 3
     ws.cell(row=r, column=1, value="Revenue").font = sec_font
@@ -3540,6 +4214,7 @@ def build_model(screener_path: str, screener_data: dict, model: dict, out_path: 
         for ci, i in zip(p_cols, range(np_)):
             ws.cell(row=r, column=ci, value=pv(pk, i)).number_format = INR
             ws.cell(row=r, column=ci).fill = peach_fill
+        bs_rr[pk] = r
         asset_rows.append(r)
         r += 1
 
@@ -3570,6 +4245,7 @@ def build_model(screener_path: str, screener_data: dict, model: dict, out_path: 
     for ci, dc in zip(h_cols, disp_ds):
         ws.cell(row=r, column=ci, value=f"='Data Sheet'!{dc}{row_map['cash']}").number_format = INR
     CASH_R = r
+    bs_rr["cash"] = r
     r += 1
 
     ws.cell(row=r, column=1, value="Other Assets")
@@ -3578,16 +4254,21 @@ def build_model(screener_path: str, screener_data: dict, model: dict, out_path: 
             row=r, column=ci,
             value=f"='Data Sheet'!{dc}{row_map['other_assets']}-'Data Sheet'!{dc}{row_map['receivables']}-'Data Sheet'!{dc}{row_map['inventory']}-'Data Sheet'!{dc}{row_map['cash']}",
         ).number_format = INR
-    for ci, i in zip(p_cols, range(np_)):
-        ws.cell(row=r, column=ci, value=pv("other_assets", i)).number_format = INR
+    for ci in p_cols:
+        cl = get_column_letter(ci)
+        ws.cell(row=r, column=ci, value=f"='{pln}'!{cl}{REV}*'{asn}'!{cl}{A_OA}/100").number_format = INR
         ws.cell(row=r, column=ci).fill = peach_fill
     OA_R = r
+    bs_rr["other_assets"] = r
     r += 1
 
     for ci in p_cols:
         cl = get_column_letter(ci)
-        asset_sum = "+".join(f"{cl}{ar}" for ar in asset_rows)
-        ws.cell(row=CASH_R, column=ci, value=f"={cl}{TL_R}-{asset_sum}-{cl}{OA_R}").number_format = INR
+        ws.cell(
+            row=CASH_R,
+            column=ci,
+            value=f"={cl}{TL_R}-{cl}{bs_rr['net_block']}-{cl}{bs_rr['cwip']}-{cl}{bs_rr['investments']}-{cl}{RECV_R}-{cl}{INVTY_R}-{cl}{OA_R}",
+        ).number_format = INR
         ws.cell(row=CASH_R, column=ci).fill = peach_fill
 
     projected_revenues = projected_revenues_numeric()
@@ -3601,11 +4282,13 @@ def build_model(screener_path: str, screener_data: dict, model: dict, out_path: 
         receivables = projected_revenues[i] * float(av("receivable_days", year) or 0) / 365
         raw_material_cost = projected_revenues[i] * float(av("rm_pct", year) or 0) / 100
         inventory = raw_material_cost * float(av("inventory_days", year) or 0) / 365
+        other_assets_pct = _median_non_null([hist_assumption_value("other_assets_pct", y) for y in hist_years[-5:]], 0.0)
+        other_assets = projected_revenues[i] * other_assets_pct / 100
         assets_ex_cash = (
             float(pv("net_block", i, 0) or 0)
             + float(pv("cwip", i, 0) or 0)
             + float(pv("investments", i, 0) or 0)
-            + float(pv("other_assets", i, 0) or 0)
+            + other_assets
             + receivables
             + inventory
         )
@@ -3688,13 +4371,17 @@ def build_model(screener_path: str, screener_data: dict, model: dict, out_path: 
     r = 3
     ratio_formulas = [
         ("EBITDA Margin %", f"=IF('{pln}'!{{cl}}{REV}=0,0,'{pln}'!{{cl}}{EBITDA}/'{pln}'!{{cl}}{REV})", PCT),
+        ("Revenue Growth %", f"=IFERROR('{pln}'!{{cl}}{REV}/'{pln}'!{{prev_cl}}{REV}-1,\"\")", PCT),
+        ("EBITDA Growth %", f"=IFERROR('{pln}'!{{cl}}{EBITDA}/'{pln}'!{{prev_cl}}{EBITDA}-1,\"\")", PCT),
         ("PAT Margin %", f"=IF('{pln}'!{{cl}}{REV}=0,0,'{pln}'!{{cl}}{PAT}/'{pln}'!{{cl}}{REV})", PCT),
+        ("PAT Growth %", f"=IFERROR('{pln}'!{{cl}}{PAT}/'{pln}'!{{prev_cl}}{PAT}-1,\"\")", PCT),
         ("ROE %", f"=IF('{bsn}'!{{cl}}{EQ_R}=0,0,'{pln}'!{{cl}}{PAT}/'{bsn}'!{{cl}}{EQ_R})", PCT),
         ("ROCE %", f"=IF(('{bsn}'!{{cl}}{EQ_R}+'{bsn}'!{{cl}}{bs_rr['borrowings']})=0,0,'{pln}'!{{cl}}{EBIT}/('{bsn}'!{{cl}}{EQ_R}+'{bsn}'!{{cl}}{bs_rr['borrowings']}))", PCT),
         ("Debt/Equity (x)", f"=IF('{bsn}'!{{cl}}{EQ_R}=0,0,'{bsn}'!{{cl}}{bs_rr['borrowings']}/'{bsn}'!{{cl}}{EQ_R})", RATIO),
         ("Receivable Days", f"=IF('{pln}'!{{cl}}{REV}=0,0,'{bsn}'!{{cl}}{RECV_R}/'{pln}'!{{cl}}{REV}*365)", "0"),
         ("Inventory Days", f"=IF('{pln}'!{{cl}}{exp_rows[0]}=0,0,'{bsn}'!{{cl}}{INVTY_R}/'{pln}'!{{cl}}{exp_rows[0]}*365)", "0"),
         ("Asset Turnover (x)", f"=IF('{bsn}'!{{cl}}{TA_R}=0,0,'{pln}'!{{cl}}{REV}/'{bsn}'!{{cl}}{TA_R})", RATIO),
+        ("CFO/EBITDA", f"=IF('{pln}'!{{cl}}{EBITDA}=0,0,'{cfn}'!{{cl}}{cf_rr['cfo']}/'{pln}'!{{cl}}{EBITDA})", PCT),
         ("EPS (₹)", f"='{pln}'!{{cl}}{PAT}/{shares_cr:.2f}", INR2),
         ("BVPS (₹)", f"='{bsn}'!{{cl}}{EQ_R}/{shares_cr:.2f}", INR2),
     ]
@@ -3702,7 +4389,11 @@ def build_model(screener_path: str, screener_data: dict, model: dict, out_path: 
         ws.cell(row=r, column=1, value=label)
         for ci in range(2, nc + 1):
             cl = get_column_letter(ci)
-            ws.cell(row=r, column=ci, value=tmpl.replace("{cl}", cl)).number_format = fmt
+            prev_cl = get_column_letter(ci - 1) if ci > 2 else cl
+            formula = tmpl.replace("{cl}", cl).replace("{prev_cl}", prev_cl)
+            if "Growth" in label and ci == 2:
+                formula = ""
+            ws.cell(row=r, column=ci, value=formula).number_format = fmt
             if ci in p_cols:
                 ws.cell(row=r, column=ci).fill = peach_fill
         r += 1
@@ -3748,6 +4439,7 @@ def build_model(screener_path: str, screener_data: dict, model: dict, out_path: 
             ws.cell(row=r, column=c).border = thin_bdr
         r += 1
 
+    screener_data = sd
     sens = val.get("sensitivity_pe", {})
     if sens and sens.get("grid"):
         if len(sens.get("row_values", [])) != len(sens.get("grid", [])) or any(
@@ -3771,6 +4463,21 @@ def build_model(screener_path: str, screener_data: dict, model: dict, out_path: 
     logger.info("  ✅ Valuation")
 
     # ═══ KPI DASHBOARD ═══
+    if sens and sens.get("grid") and sens.get("row_values") and sens.get("col_values") and p_cols:
+        row_vals = sens.get("row_values", [])
+        col_vals = sens.get("col_values", [])
+        header_row = r - len(row_vals) - 1
+        eps_col = get_column_letter(p_cols[1] if len(p_cols) > 1 else p_cols[0])
+        for row_offset, _rv in enumerate(row_vals, 1):
+            target_row = header_row + row_offset
+            for ci, _cv in enumerate(col_vals, 2):
+                cl = get_column_letter(ci)
+                ws.cell(
+                    row=target_row,
+                    column=ci,
+                    value=f"=$A{target_row}*'{pln}'!{eps_col}{EPS_R}*(1+{cl}{header_row}/100)",
+                ).number_format = INR
+
     ws, _ = mk("KPI Dashboard")
     set_w(ws, [35] + [15] * (nc - 1))
     hdr_r(ws, 2, year_labels, nc)
@@ -3828,6 +4535,7 @@ def build_model(screener_path: str, screener_data: dict, model: dict, out_path: 
         "sector": model.get("sector", ""),
         "pln": pln,
         "asn": asn,
+        "assum_rows": assum_row_map,
         "bsn": bsn,
         "cfn": cfn,
         "REV": REV,
