@@ -130,7 +130,6 @@ def fmt_number(value, *, force_decimal: bool = False) -> str:
         return f"{num:,.0f}"
     return f"{num:,.1f}"
 _PLACEHOLDER_RE = re.compile(r"not included in the generated report|content pending", re.I)
-_OPENROUTER_PATCHED = False
 _HOUSE_PLANNER_PATCHED = False
 _ORPHAN_NUMBER_RE = re.compile(
     r"(?<!FY)(?<!fy)\b\d[\d,]*(?:\.\d+)?\s*(?:%|x\b|cr\b|crore\b|bn\b|billion\b|lakh\b|bps\b)"

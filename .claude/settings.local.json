@@ -140,7 +140,8 @@
       "Bash(npx tsx *)",
       "Bash(.venv/Scripts/python.exe -m pip list)",
       "Bash(rm -rf scripts/__pycache__ scripts/ppt_service/__pycache__ scripts/ppt_service/ppt_service.log scripts/_vps_rebuild_xlsx.py scripts/offline_test_build_model.py scripts/deploy_fm_to_vps.py scripts/generate_ppt_copy.ts docs/pptx-research-report-project-brief.md)",
-      "Bash(rmdir scripts/ppt_service/ppt_output)"
+      "Bash(rmdir scripts/ppt_service/ppt_output)",
+      "Bash(git mv *)"
     ]
   }
 }
