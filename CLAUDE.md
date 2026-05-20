@@ -18,7 +18,7 @@ Repository guide for the AI-powered equity research platform. The flagship featu
   - `POST /webhook/generate-media-script`, `/synthesize-podcast`, `/generate-video` — post-production media.
 - **Local services proxied via Vite (`vite.config.ts`):**
   - `/proxy/fm` → `http://72.61.226.16:8500` — financial model REST service (Python; see [scripts/financial_model_server.py](scripts/financial_model_server.py)).
-  - `/proxy/ppt` → `http://localhost:8501` — PPTX/PDF generator service (see [scripts/ppt_service/](scripts/ppt_service/) and [PPT-generator/](PPT-generator/)).
+  - `/proxy/ppt` → `http://localhost:8501` — PPTX/PDF generator service (see [scripts/ppt_service/](scripts/ppt_service/)).
   - `/proxy/n8n` → public n8n.
 
 ---
@@ -98,7 +98,7 @@ Every stage prepends `buildFreshnessPreamble()` to the system prompt. It compute
 - [src/components/pipeline/PostProductionPanel.tsx](src/components/pipeline/PostProductionPanel.tsx) — PPTX / podcast / video / publish / Telegram.
 - [src/components/pipeline/StageReview.tsx](src/components/pipeline/StageReview.tsx), [PipelineProgressBar.tsx](src/components/pipeline/PipelineProgressBar.tsx), [PromptEditor.tsx](src/components/pipeline/PromptEditor.tsx) — UI primitives for the pipeline.
 - [scripts/financial_model_v5.py](scripts/financial_model_v5.py), [scripts/financial_model_server.py](scripts/financial_model_server.py) — Python financial model generator + REST wrapper.
-- [scripts/ppt_service/](scripts/ppt_service/), [PPT-generator/pipeline/](PPT-generator/pipeline/) — PPTX/PDF generation service (`orchestrate.py`, `renderer.py`, `pages.py`, `editorial.py`, `critique.py`, `pdf_export.py`).
+- [scripts/ppt_service/](scripts/ppt_service/) — PPTX/PDF generation service.
 
 ---
 

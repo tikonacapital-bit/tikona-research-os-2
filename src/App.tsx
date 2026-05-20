@@ -11,12 +11,10 @@ import Login from '@/pages/Login';
 import Dashboard from '@/pages/Dashboard';
 import MasterDatabase from '@/pages/MasterDatabase';
 import Universe from '@/pages/Universe';
-import GenerateResearch from '@/pages/GenerateResearch';
 import ResearchReports from '@/pages/ResearchReports';
 import PromptLibrary from '@/pages/PromptLibrary';
 import ResearchPipeline from '@/pages/ResearchPipeline';
 import Recommendations from '@/pages/Recommendations';
-import ReportBuilder from '@/pages/ReportBuilder';
 import SectorThesis from '@/pages/SectorThesis';
 import SystemHealth from '@/pages/SystemHealth';
 
@@ -60,11 +58,9 @@ function App() {
                 <Route path="/admin/equity-database" element={<MasterDatabase />} />
                 <Route path="/admin/universe" element={<Universe />} />
                 <Route path="/admin/research-reports" element={<ResearchReports />} />
-                <Route path="/admin/generate-research" element={<GenerateResearch />} />
                 <Route path="/admin/pipeline" element={<ResearchPipeline />} />
                 <Route path="/admin/prompts" element={<PromptLibrary />} />
                 <Route path="/admin/recommendations" element={<Recommendations />} />
-                <Route path="/admin/report-builder" element={<ReportBuilder />} />
                 <Route path="/admin/sector-thesis" element={<SectorThesis />} />
                 <Route path="/admin/system-health" element={<SystemHealth />} />
               </Route>

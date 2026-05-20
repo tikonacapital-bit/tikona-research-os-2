@@ -51,3 +51,8 @@ build.log
 .claude/scheduled_tasks.lock
 report_*.pptx
 report_*.pdf
+
+# Generated artifacts
+output/
+scripts/ppt_service/ppt_output/
+scripts/ppt_service/*.log
