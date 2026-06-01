@@ -144,6 +144,7 @@ async function sendToTelegram(rec: Recommendation, pdfFileId?: string | null): P
       plans: rec.plans,
       trade_notes: rec.trade_notes,
       report_file_url: rec.report_file_url,
+      session_id: rec.session_id,
       pdf_file_id: pdfFileId || null,
     }),
   });
