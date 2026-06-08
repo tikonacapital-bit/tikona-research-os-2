@@ -659,9 +659,10 @@ export default function ResearchPipeline() {
     if (!sessionId) return;
     try {
       const report = await getReportBySession(sessionId);
-      if (report?.report_id) {
-        await unpublishReport(report.report_id);
+      if (!report || !report.report_id) {
+        throw new Error('Research report record not found. Please ensure the report has been generated.');
       }
+      await unpublishReport(report.report_id);
       await transitionPipelineStatus(sessionId, 'stage2_approved', pipelineStatus);
       setPipelineStatus('stage2_approved');
       toast.success('Report reverted to draft.');

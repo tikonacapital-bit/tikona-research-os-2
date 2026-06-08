@@ -988,13 +988,18 @@ export async function publishReport(reportId: string, plan?: string): Promise<vo
     updatePayload.plan = plan;
   }
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('research_reports')
     .update(updatePayload)
-    .eq('report_id', reportId);
+    .eq('report_id', reportId)
+    .select();
 
   if (error) {
     throw new Error(`Failed to publish report: ${error.message}`);
+  }
+
+  if (!data || data.length === 0) {
+    throw new Error('Failed to publish report. The database update was ignored. Please check Row Level Security (RLS) policies.');
   }
 }
 
@@ -1002,17 +1007,22 @@ export async function publishReport(reportId: string, plan?: string): Promise<vo
  * Unpublishes a report (hides from customers)
  */
 export async function unpublishReport(reportId: string): Promise<void> {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('research_reports')
     .update({
       is_published: false,
       published_at: null,
       updated_at: new Date().toISOString(),
     })
-    .eq('report_id', reportId);
+    .eq('report_id', reportId)
+    .select();
 
   if (error) {
     throw new Error(`Failed to unpublish report: ${error.message}`);
+  }
+
+  if (!data || data.length === 0) {
+    throw new Error('Failed to unpublish report. The database update was ignored. Please check Row Level Security (RLS) policies.');
   }
 }
 
