@@ -15,7 +15,13 @@ export default defineConfig({
       // n8n is behind nginx on the public domain — proxy to domain, not raw IP
       '/proxy/n8n': { target: 'https://n8n.tikonacapital.com', rewrite: (p) => p.replace(/^\/proxy\/n8n/, ''), changeOrigin: true, secure: true },
       '/proxy/ppt': { target: 'http://localhost:8501',          rewrite: (p) => p.replace(/^\/proxy\/ppt/, ''), changeOrigin: true },
-      '/proxy/fm':  { target: 'http://72.61.226.16:8500',       rewrite: (p) => p.replace(/^\/proxy\/fm/,  ''), changeOrigin: true },
+      '/proxy/fm':  { 
+        target: 'http://72.61.226.16:8500',       
+        rewrite: (p) => p.replace(/^\/proxy\/fm/,  ''), 
+        changeOrigin: true,
+        timeout: 900000,      // 15 minutes timeout
+        proxyTimeout: 900000 // 15 minutes proxy timeout
+      },
     },
   },
   build: {

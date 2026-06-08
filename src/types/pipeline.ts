@@ -42,7 +42,7 @@ export const PIPELINE_TRANSITIONS: Record<PipelineStatus, PipelineStatus[]> = {
 
 export function canTransition(from: PipelineStatus, to: PipelineStatus): boolean {
   // Relaxing transitions for better UX when resuming sessions
-  if (to === 'vault_ready' || to === 'company_selected') return true;
+  if (to === 'vault_ready' || to === 'company_selected' || to === 'stage2_approved') return true;
   return PIPELINE_TRANSITIONS[from]?.includes(to) ?? true; // Default to true if not strictly mapped, to prevent UI blocks
 }
 
