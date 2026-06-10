@@ -252,7 +252,9 @@ export default function PPTDataPanel({
       // Filter out excluded keys
       const filtered: Record<string, string> = {};
       for (const [k, v] of Object.entries(result.placeholders)) {
-        if (!EXCLUDED_KEYS.has(k)) filtered[k] = v;
+        if (!EXCLUDED_KEYS.has(k)) {
+          filtered[k] = v != null ? String(v) : '';
+        }
       }
       setValues(filtered);
       setWarnings(result.warnings || []);
@@ -331,7 +333,7 @@ export default function PPTDataPanel({
     );
   }
 
-  const filledCount = Object.values(values).filter(v => v.trim()).length;
+  const filledCount = Object.values(values).filter(v => typeof v === 'string' && v.trim()).length;
   const totalCount = Object.values(values).length;
 
   return (
@@ -389,7 +391,10 @@ export default function PPTDataPanel({
       <div className="space-y-2">
         {PLACEHOLDER_GROUPS.map(group => {
           const isOpen = openGroups.has(group.title);
-          const groupFilled = group.fields.filter(f => values[f.key]?.trim()).length;
+          const groupFilled = group.fields.filter(f => {
+      const v = values[f.key];
+      return typeof v === 'string' && v.trim();
+    }).length;
           return (
             <div key={group.title} className="rounded-lg border border-neutral-200 overflow-hidden">
               <button
@@ -463,7 +468,7 @@ interface FieldRowProps {
 }
 
 function FieldRow({ field, value, onChange }: FieldRowProps) {
-  const isEmpty = !value.trim();
+  const isEmpty = typeof value !== 'string' || !value.trim();
   return (
     <div className="px-4 py-2.5 grid grid-cols-[200px_1fr] gap-3 items-start">
       <div className="pt-1.5">

@@ -1224,6 +1224,33 @@ function parseSectionsFromResponse(
 
   const parts = rawText.split(SECTION_SEPARATOR).filter(p => p.trim().length > 0);
 
+  // If we have exactly 18 parts, map them directly by index (highly robust order-based matching)
+  if (parts.length === REPORT_SECTION_DEFS.length) {
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      const lines = part.trim().split('\n');
+      const titleLine = lines.find(l => l.trim().length > 0)?.trim() ?? '';
+      const contentLines = lines.slice(lines.findIndex(l => l.trim().length > 0) + 1);
+      const content = contentLines.join('\n').trim();
+      
+      const def = REPORT_SECTION_DEFS[i];
+      let finalContent = content;
+      if (!finalContent && titleLine) {
+        if (titleLine.toLowerCase() !== def.title.toLowerCase()) {
+          finalContent = titleLine;
+        }
+      }
+      
+      results.push({
+        key: def.key,
+        title: def.title,
+        content: finalContent || `*Content for ${def.title} was not generated.*`,
+      });
+    }
+    return results;
+  }
+
+  // Fallback: match by title line content
   for (const part of parts) {
     const lines = part.trim().split('\n');
     const titleLine = lines.find(l => l.trim().length > 0)?.trim() ?? '';
@@ -1237,15 +1264,30 @@ function parseSectionsFromResponse(
              def.title.toLowerCase().includes(titleLine.toLowerCase())
     );
 
+    let finalContent = content;
+    if (!finalContent && titleLine && matchedDef && titleLine.toLowerCase() !== matchedDef.title.toLowerCase()) {
+      finalContent = titleLine;
+    }
+
     if (matchedDef) {
       results.push({
         key: matchedDef.key,
         title: matchedDef.title,
-        content: content || `*Content for ${matchedDef.title} was not generated.*`,
+        content: finalContent || `*Content for ${matchedDef.title} was not generated.*`,
       });
     } else {
-      const key = titleLine.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 40);
-      results.push({ key, title: titleLine, content });
+      // Deduce missing values from titles if they contain exact values
+      const titleClean = titleLine.trim().toUpperCase();
+      if (titleClean === 'BUY' || titleClean === 'SELL' || titleClean === 'HOLD') {
+        results.push({ key: 'rating', title: 'Rating', content: titleLine });
+      } else if (titleClean === 'LARGECAP' || titleClean === 'MIDCAP' || titleClean === 'SMALLCAP') {
+        results.push({ key: 'market_cap_category', title: 'Market Cap Category', content: titleLine });
+      } else if (titleLine.includes('%')) {
+        results.push({ key: 'upside_percentage', title: 'Upside Percentage', content: titleLine });
+      } else {
+        const key = titleLine.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 40);
+        results.push({ key, title: titleLine, content });
+      }
     }
   }
 
