@@ -1229,11 +1229,12 @@ export async function generatePptx(
 
   if (!response.ok) {
     let detail = '';
+    const cloned = response.clone();
     try {
       const body = (await response.json()) as { message?: string };
       detail = body?.message ?? '';
     } catch {
-      detail = (await response.text()).slice(0, 300);
+      detail = (await cloned.text()).slice(0, 300);
     }
     throw new Error(`PPTX generation failed: ${response.status} ${detail}`);
   }
