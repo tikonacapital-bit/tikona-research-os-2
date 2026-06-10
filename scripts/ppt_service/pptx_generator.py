@@ -4435,6 +4435,51 @@ def _cleanup_excel_placeholders(pptx_path: str, replacements: dict) -> int:
     return cleaned
 
 
+def _convert_pptx_to_pdf(pptx_path: Path, output_dir: Path) -> Path | None:
+    """Headless LibreOffice conversion from PPTX to PDF."""
+    import subprocess
+    soffice_bin = shutil.which("soffice") or shutil.which("soffice.exe")
+    if not soffice_bin:
+        # Check standard Windows paths if not in PATH
+        for win_path in [
+            r"C:\Program Files\LibreOffice\program\soffice.exe",
+            r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+        ]:
+            if os.path.exists(win_path):
+                soffice_bin = win_path
+                break
+
+    if not soffice_bin:
+        logger.warning("LibreOffice (soffice) not found; PDF conversion skipped.")
+        return None
+
+    logger.info("Converting PPTX to PDF: %s -> %s", pptx_path, output_dir)
+    try:
+        cmd = [
+            soffice_bin,
+            "--headless",
+            "--convert-to",
+            "pdf",
+            "--outdir",
+            str(output_dir),
+            str(pptx_path),
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if res.returncode != 0:
+            logger.error("LibreOffice conversion failed (code %d): %s", res.returncode, res.stderr)
+            return None
+
+        pdf_path = output_dir / pptx_path.with_suffix(".pdf").name
+        if pdf_path.exists():
+            logger.info("PDF generated successfully: %s", pdf_path)
+            return pdf_path
+        logger.warning("LibreOffice completed but output PDF not found at %s", pdf_path)
+        return None
+    except Exception as e:
+        logger.error("Error during LibreOffice PDF conversion: %s", e)
+        return None
+
+
 def generate_pptx_for_report(report_id: str, session_id: str, *, use_mock: bool = False) -> dict:
     """Top-level orchestrator. Returns the response payload for /generate-pptx."""
     t0 = time.time()
@@ -4821,6 +4866,13 @@ def generate_pptx_for_report(report_id: str, session_id: str, *, use_mock: bool 
 
         pdf_path_out: str | None = None
         pdf_url: str | None = None
+        
+        pdf_path = _convert_pptx_to_pdf(Path(result_pptx_path), output_root)
+        if pdf_path and pdf_path.exists():
+            pdf_key = f"{ticker}/{report_id}/report_{ts}.pdf"
+            pdf_path_out, pdf_url = _upload(client, pdf_path, pdf_key, PDF_CONTENT_TYPE)
+        else:
+            warnings.append("PDF conversion skipped (LibreOffice soffice failed or not found)")
 
     # Update DB
     now_iso = datetime.now(timezone.utc).isoformat()
