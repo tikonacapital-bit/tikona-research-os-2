@@ -1,6 +1,6 @@
 import { useParams } from 'react-router-dom';
 import { useEffect } from 'react';
-import { Send, Smartphone, Download, ExternalLink } from 'lucide-react';
+import { Smartphone, Download, ExternalLink } from 'lucide-react';
 
 export default function MobileRedirect() {
   const { id } = useParams<{ id: string }>();

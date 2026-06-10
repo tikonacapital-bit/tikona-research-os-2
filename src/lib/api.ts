@@ -13,18 +13,41 @@ import type {
 } from '@/types/database';
 
 const N8N_BASE_URL = 'https://n8n.tikonacapital.com';
-const FINANCIAL_MODEL_SERVICE_URL = '/proxy/fm';
+
+// Two URL strategies for the financial model service:
+//
+// 1. PROXY  (/proxy/fm) — safe for SHORT requests (<30 s).
+//    Used for: /generate-async (enqueue, ~1-2 s) and /status/<id> polls (~1 s each).
+//    NOT safe for the blocking /generate endpoint which takes ~10 minutes.
+//
+// 2. DIRECT (VPS IP) — no Vercel proxy timeout, but requires:
+//    a) Python service sends CORS headers (Access-Control-Allow-Origin: *)
+//    b) Site served over HTTP (not HTTPS) OR VPS has a TLS cert.
+//    Used only as a fallback when the async endpoint is unavailable.
+//
+// Bottom line: prefer async mode (proxy path). The direct URL is a last-resort
+// fallback that only works if the VPS is HTTP-accessible from the browser.
+const FM_PROXY_URL  = '/proxy/fm';   // Vercel rewrite → VPS; fine for short calls
+const FM_DIRECT_URL = import.meta.env.VITE_FINANCIAL_MODEL_URL || 'http://72.61.226.16:8500'; // direct, no proxy timeout
 
 /**
- * Triggers the financial model generation service directly (bypasses n8n).
- * The Python service generates the Excel, uploads it to Supabase Storage,
- * and returns a stable URL for downstream report generation.
+ * Triggers financial model generation on the VPS Python service.
  *
- * @param ticker - NSE stock symbol (e.g., "TATAMOTORS")
- * @param companyName - Full company name (e.g., "Tata Motors Ltd")
- * @param sector - Company sector (e.g., "Automobile")
- * @param folderId - Google Drive folder ID retained for compatibility with older callers
- * @returns Promise with the generated model URL and metadata
+ * WHY DIRECT URL (not /proxy/fm):
+ * Vercel rewrites have a hard ~30 s response-body timeout. The Python service
+ * takes ~10 minutes to generate an Excel model. Going through the Vercel proxy
+ * guarantees a 502 / ROUTER_EXTERNAL_TARGET_ERROR every time and wastes credits.
+ * Calling the VPS directly from the browser avoids this limit entirely.
+ *
+ * ASYNC POLLING:
+ * Instead of holding one HTTP connection open for 10 minutes (which browsers
+ * may also kill), we POST to /generate-async to enqueue the job and receive a
+ * job_id immediately. We then poll /status/<job_id> every 15 s until the job
+ * completes or fails (max 20 min). This is resilient to tab refreshes because
+ * the job keeps running on the VPS regardless.
+ *
+ * Falls back to a synchronous call if the Python service does not support the
+ * async endpoints (older deployments).
  */
 export async function generateFinancialModel(
   ticker: string,
@@ -45,32 +68,93 @@ export async function generateFinancialModel(
     folder_id: folderId,
   };
 
-  console.log('[API] Generating financial model with:', requestBody);
+  const fileName = `${ticker.toUpperCase()}_model.xlsx`;
+  console.log('[FM] Starting generation for:', requestBody);
 
-  const response = await fetch(`${FINANCIAL_MODEL_SERVICE_URL}/generate`, {
+  // ── Try async job endpoint first ────────────────────────────────────────────
+  let useAsync = false;
+  let jobId: string | null = null;
+
+  try {
+    const asyncResp = await fetch(`${FM_PROXY_URL}/generate-async`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody),
+      signal: AbortSignal.timeout(15_000), // 15 s to enqueue
+    });
+
+    if (asyncResp.ok) {
+      const asyncData = await asyncResp.json() as Record<string, unknown>;
+      if (asyncData.job_id) {
+        jobId = asyncData.job_id as string;
+        useAsync = true;
+        console.log('[FM] Async job enqueued, job_id:', jobId);
+      }
+    }
+  } catch {
+    // Async endpoint not available — fall back to synchronous call below
+    console.warn('[FM] /generate-async not available, falling back to synchronous /generate');
+  }
+
+  // ── Async polling path ───────────────────────────────────────────────────────
+  if (useAsync && jobId) {
+    const POLL_INTERVAL_MS = 15_000; // 15 s between polls
+    const MAX_WAIT_MS = 20 * 60 * 1000; // 20 min max
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < MAX_WAIT_MS) {
+      await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+
+      const statusResp = await fetch(`${FM_PROXY_URL}/status/${jobId}`, {
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      if (!statusResp.ok) {
+        console.warn('[FM] Status poll returned', statusResp.status, '— retrying');
+        continue;
+      }
+
+      const statusData = await statusResp.json() as Record<string, unknown>;
+      const state = statusData.state as string | undefined;
+      console.log(`[FM] Job ${jobId} state: ${state}`);
+
+      if (state === 'SUCCESS' || state === 'success' || state === 'completed') {
+        return _extractFmResult(statusData, fileName);
+      }
+
+      if (state === 'FAILURE' || state === 'error' || state === 'failed') {
+        throw new Error((statusData.message as string) || 'Financial model generation failed on VPS');
+      }
+      // state is 'PENDING' / 'RUNNING' — keep polling
+    }
+    throw new Error('Financial model timed out after 20 minutes. Check the VPS service logs.');
+  }
+
+  // ── Synchronous fallback path (no /generate-async on this VPS build) ────────
+  console.log('[FM] Using synchronous /generate endpoint (no timeout guard — ensure VPS is reachable)');
+
+  const response = await fetch(`${FM_DIRECT_URL}/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(requestBody),
+    // No AbortSignal — we let the browser wait as long as it takes.
+    // FM_DIRECT_URL bypasses Vercel proxy so this will NOT get a 502.
   });
-
-  const fileName = `${ticker.toUpperCase()}_model.xlsx`;
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error('[API] Financial model error:', errorText);
+    console.error('[FM] Error response:', errorText);
     throw new Error(`Financial model generation failed: ${response.status} ${response.statusText}`);
   }
 
   const responseText = await response.text();
-  if (!responseText) {
-    throw new Error('Financial model service returned an empty response');
-  }
+  if (!responseText) throw new Error('Financial model service returned an empty response');
 
   let data: Record<string, unknown>;
   try {
     data = JSON.parse(responseText);
   } catch {
-    console.error('[API] Financial model response not JSON:', responseText.slice(0, 200));
+    console.error('[FM] Non-JSON response:', responseText.slice(0, 200));
     throw new Error('Financial model service returned invalid JSON');
   }
 
@@ -78,6 +162,20 @@ export async function generateFinancialModel(
     throw new Error((data.message as string) || 'Financial model generation failed');
   }
 
+  return _extractFmResult(data, fileName);
+}
+
+/** Normalises a raw Python service response into the standard FM result shape. */
+function _extractFmResult(
+  data: Record<string, unknown>,
+  fileName: string
+): {
+  fileId: string | null;
+  fileUrl: string | null;
+  fileName: string;
+  storageUrl: string | null;
+  driveFileUrl: string | null;
+} {
   const fileId = (data.file_id as string) || (data.id as string) || null;
   const storageUrl = (data.storage_url as string) || (data.supabase_url as string) || null;
   const driveFileUrl =
@@ -85,14 +183,15 @@ export async function generateFinancialModel(
     (data.webViewLink as string) ||
     (fileId ? `https://drive.google.com/file/d/${fileId}/view` : null);
   const fileUrl = storageUrl || driveFileUrl || null;
-
   return { fileId, fileUrl, fileName, storageUrl, driveFileUrl };
 }
 
 export async function mirrorFinancialModelToStorage(
   ticker: string
 ): Promise<{ fileUrl: string; filePath: string | null; jsonFileUrl: string | null; jsonFilePath: string | null }> {
-  const response = await fetch(`${FINANCIAL_MODEL_SERVICE_URL}/storage/${ticker.toUpperCase()}`, {
+  // mirrorFinancialModelToStorage: /storage/<ticker> is a fast call (<5 s),
+  // so the proxy is fine here. No timeout issues.
+  const response = await fetch(`${FM_PROXY_URL}/storage/${ticker.toUpperCase()}`, {
     method: 'POST',
   });
 
