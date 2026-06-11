@@ -872,11 +872,30 @@ export default function PostProductionPanel({
               )}
             </Button>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-3">
               <video controls src={videoFileUrl} className="w-full max-h-48 rounded-lg bg-black" />
-              <a href={videoFileUrl} download className="text-xs text-neutral-500 hover:text-neutral-700 flex items-center gap-1">
-                <Download className="h-3 w-3" /> Download MP4
-              </a>
+              <div className="flex flex-wrap items-center gap-3">
+                <a
+                  href={videoFileUrl}
+                  download
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 hover:bg-neutral-50 text-neutral-700 text-xs font-medium h-8 px-3"
+                >
+                  <Download className="h-3.5 w-3.5" /> Download MP4
+                </a>
+                <Button
+                  onClick={handleGenerateVideo}
+                  disabled={videoGenerating || isAnyGenerating}
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-xs text-neutral-500 hover:text-neutral-800"
+                >
+                  {videoGenerating ? (
+                    <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Regenerating ({formatTime(videoElapsedSeconds)})</>
+                  ) : (
+                    <><RefreshCw className="h-3 w-3 mr-1.5" /> Regenerate Video</>
+                  )}
+                </Button>
+              </div>
             </div>
           )}
         </StepRow>

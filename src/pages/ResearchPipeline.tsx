@@ -1375,7 +1375,7 @@ export default function ResearchPipeline() {
             )}
 
             {/* ===== Post-Production & Publish ===== */}
-            {pipelineStatus === 'stage2_approved' && session && sessionId && (
+            {(pipelineStatus === 'stage2_approved' || pipelineStatus === 'published') && session && sessionId && (
               <PostProductionPanel
                 sessionId={sessionId}
                 companyName={session.company_name}
