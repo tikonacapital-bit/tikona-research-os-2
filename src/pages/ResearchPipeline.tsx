@@ -148,6 +148,7 @@ export default function ResearchPipeline() {
   // --- Telegram Recommendation ---
   const [telegramSending, setTelegramSending] = useState(false);
   const [telegramSent, setTelegramSent] = useState(false);
+  const [sendPush, setSendPush] = useState(true);
 
   // --- Data Queries ---
   const { data: companies } = useCompanySearch(debouncedSearch);
@@ -722,6 +723,7 @@ export default function ResearchPipeline() {
         report_file_url: report.pptx_pdf_file_url || report.pptx_file_url || null,
         session_id: sessionId,
         send_telegram: true,
+        send_push: sendPush,
         created_by: user?.email || null,
         pdf_file_id: null,
       });
@@ -1395,6 +1397,21 @@ export default function ResearchPipeline() {
                 </div>
                 <h3 className="text-xl font-semibold text-green-800 mb-1">Report Published</h3>
                 <p className="text-sm text-green-600 mb-6">This research report is now live and visible to stakeholders.</p>
+
+                {!telegramSent && (
+                  <div className="flex items-center gap-2 mb-4">
+                    <input
+                      type="checkbox"
+                      id="send-push-checkbox-pipeline"
+                      checked={sendPush}
+                      onChange={(e) => setSendPush(e.target.checked)}
+                      className="rounded border-neutral-300 text-accent-600 focus:ring-accent-500/40 h-4 w-4 cursor-pointer"
+                    />
+                    <label htmlFor="send-push-checkbox-pipeline" className="text-xs text-neutral-600 font-medium select-none cursor-pointer">
+                      Send Push Notification to App Subscribers
+                    </label>
+                  </div>
+                )}
 
                 <div className="flex items-center gap-3">
                   {!telegramSent ? (

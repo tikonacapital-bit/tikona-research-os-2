@@ -10,7 +10,7 @@ const N8N_BASE_URL = 'https://n8n.tikonacapital.com';
 export async function createRecommendation(
   payload: CreateRecommendationPayload
 ): Promise<Recommendation> {
-  const { send_telegram, pdf_file_id, ...dbPayload } = payload;
+  const { send_telegram, pdf_file_id, send_push, ...dbPayload } = payload;
 
   const upside_pct =
     dbPayload.cmp && dbPayload.target_price
@@ -42,6 +42,29 @@ export async function createRecommendation(
       rec.telegram_sent = true;
     } catch (e) {
       console.error('[Recommendations] Telegram send failed:', e);
+    }
+  }
+
+  if (send_push) {
+    try {
+      const { data: functionData, error: functionError } = await supabase.functions.invoke('send-push-notification', {
+        body: {
+          company_name: rec.company_name,
+          nse_symbol: rec.nse_symbol,
+          rating: rec.rating,
+          cmp: rec.cmp,
+          target_price: rec.target_price,
+          upside_pct: rec.upside_pct,
+          validity_type: rec.validity_type,
+          validity_date: rec.validity_date,
+          session_id: rec.session_id,
+          plans: rec.plans,
+        },
+      });
+      if (functionError) throw functionError;
+      console.log('[Recommendations] Push notification sent:', functionData);
+    } catch (e) {
+      console.error('[Recommendations] Push notification send failed:', e);
     }
   }
 

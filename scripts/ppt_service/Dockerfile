@@ -3,15 +3,20 @@ FROM python:3.12-slim
 # Install Node.js 20 + system libs required by Playwright Chromium + LibreOffice for PDF conversion
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-      curl ca-certificates fonts-liberation \
+      curl ca-certificates fonts-liberation fontconfig \
       libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
       libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 \
       libxrandr2 libgbm1 libasound2 libpango-1.0-0 libpangocairo-1.0-0 \
       libcairo2 libatspi2.0-0 libx11-6 libxcb1 libxext6 \
-      libreoffice-nogui && \
+      libreoffice-nogui \
+      fonts-crosextra-carlito fonts-crosextra-caladea fonts-croscore && \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get install -y --no-install-recommends nodejs && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Install fontconfig alias: Calibri → Carlito, Cambria → Caladea, etc.
+COPY 99-calibri-alias.conf /etc/fonts/conf.d/99-calibri-alias.conf
+RUN fc-cache -fv
 
 WORKDIR /app
 

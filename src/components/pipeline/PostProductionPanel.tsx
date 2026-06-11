@@ -109,6 +109,7 @@ export default function PostProductionPanel({
   const [isPublished, setIsPublished] = useState(false);
   const [telegramSending, setTelegramSending] = useState(false);
   const [telegramSent, setTelegramSent] = useState(false);
+  const [sendPush, setSendPush] = useState(true);
 
   const reportIdRef = useRef(reportId);
   reportIdRef.current = reportId;
@@ -525,6 +526,7 @@ export default function PostProductionPanel({
         report_file_url: reportFileUrl,
         session_id: sessionId,
         send_telegram: true,
+        send_push: sendPush,
         created_by: userEmail,
         pdf_file_id: null,
       });
@@ -562,8 +564,8 @@ export default function PostProductionPanel({
             serviceHealth === 'ok'
               ? 'bg-green-50 text-green-700 border-green-200'
               : serviceHealth === 'down'
-              ? 'bg-red-50 text-red-700 border-red-200'
-              : 'bg-neutral-50 text-neutral-400 border-neutral-200'
+                ? 'bg-red-50 text-red-700 border-red-200'
+                : 'bg-neutral-50 text-neutral-400 border-neutral-200'
           )}
           title={`PPT service: ${serviceHealth}`}
         >
@@ -949,7 +951,7 @@ export default function PostProductionPanel({
                 const upside = cmp && tp ? (((tp - cmp) / cmp) * 100).toFixed(1) : null;
                 const planLabel = selectedPlan === 'midcap_wealth' ? 'Mid Cap Wealth Builders'
                   : selectedPlan === 'smallcap_alpha' ? 'Smallcap Alpha Picks'
-                  : selectedPlan === 'sme_emerging' ? 'SME Emerging Business' : selectedPlan;
+                    : selectedPlan === 'sme_emerging' ? 'SME Emerging Business' : selectedPlan;
 
                 const attachedUrl = pptxPdfFileUrl || pptxFileUrl;
                 const attachedLabel = pptxPdfFileUrl ? 'PDF attached' : 'PPTX attached';
@@ -990,6 +992,21 @@ export default function PostProductionPanel({
                   </div>
                 );
               })()}
+
+              {!telegramSent && (
+                <div className="flex items-center gap-2 mb-3">
+                  <input
+                    type="checkbox"
+                    id="send-push-checkbox-postprod"
+                    checked={sendPush}
+                    onChange={(e) => setSendPush(e.target.checked)}
+                    className="rounded border-neutral-300 text-accent-600 focus:ring-accent-500/40 h-4 w-4 cursor-pointer"
+                  />
+                  <label htmlFor="send-push-checkbox-postprod" className="text-xs text-neutral-600 font-medium select-none cursor-pointer">
+                    Send Push Notification to App Subscribers
+                  </label>
+                </div>
+              )}
 
               {!telegramSent ? (
                 <Button
@@ -1035,8 +1052,8 @@ function StepRow({ number, title, description, done, active, disabled, children 
       <div className={cn(
         'flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold shrink-0 mt-1',
         done ? 'bg-green-100 text-green-700' :
-        active ? 'bg-accent-100 text-accent-700' :
-        'bg-neutral-100 text-neutral-400'
+          active ? 'bg-accent-100 text-accent-700' :
+            'bg-neutral-100 text-neutral-400'
       )}>
         {done ? <Check className="h-3.5 w-3.5" strokeWidth={2.5} /> : number}
       </div>
