@@ -1048,6 +1048,18 @@ def _synthesise_saarthi_assessment(saarthi: dict) -> str:
     return "Quality score driven by strong scalability and resilient track record."
 
 
+def _extract_score_from_text(text: str) -> tuple[float, float] | None:
+    if not text:
+        return None
+    match = re.search(r"\b(\d+)\s*/\s*(\d+)\b", text)
+    if match:
+        try:
+            return float(match.group(1)), float(match.group(2))
+        except (ValueError, TypeError):
+            pass
+    return None
+
+
 def map_replacements(company, metadata, fin_model, sections):
     thesis   = _section_by_any(sections, ["investment", "thesis", "summary"])
     rationale = _section_value(sections, "investment_rationale")
@@ -1063,6 +1075,35 @@ def map_replacements(company, metadata, fin_model, sections):
         "sector_analysis", "industry_analysis",
     ])
     saarthi  = fin_model.get("saarthi") or {}
+
+    # Extract SAARTHI card texts and parse the scores from text to keep box values in sync
+    saarthi_text = _section_by_any(sections, ["saarthi"]) or _section_value(sections, "saarthi_framework")
+    saarthi_cards_text = _split_saarthi_framework(saarthi_text, saarthi)
+    dims = saarthi.get("dimensions") or []
+    computed_total = 0
+    has_custom_scores = False
+
+    for idx, card_key in enumerate(_SAARTHI_CARD_KEYS):
+        card_content = saarthi_cards_text.get(card_key, "")
+        score_info = _extract_score_from_text(card_content)
+        if score_info:
+            score, max_score = score_info
+            has_custom_scores = True
+            if idx < len(dims):
+                dims[idx]["score"] = score
+                dims[idx]["max_score"] = max_score
+            computed_total += score
+        else:
+            if idx < len(dims):
+                existing_score = dims[idx].get("score")
+                if existing_score is not None:
+                    try:
+                        computed_total += float(existing_score)
+                    except (ValueError, TypeError):
+                        pass
+
+    if has_custom_scores or dims:
+        saarthi["total_score"] = int(round(computed_total))
 
     thesis_bullets = _bullets_from_text(thesis, limit=4)
 
@@ -1684,20 +1725,45 @@ def _fill_table_from_model(table, table_key: str, fin_model: dict) -> None:
             logger.warning("Table row %d write failed: %s", ri, e)
 
 
+def _get_fallback_font(font_name: str | None) -> str | None:
+    if not font_name:
+        return None
+    import platform
+    if platform.system() != "Windows" and "calibri" in font_name.lower():
+        return "Arial"
+    return font_name
+
+
 def _apply_run_font(run, saved_font: dict, *, bold_override: bool | None = None) -> None:
     if not saved_font:
         if bold_override is not None:
             run.font.bold = bold_override
         return
-    if saved_font.get("name"):
-        run.font.name = saved_font["name"]
+    font_name = _get_fallback_font(saved_font.get("name"))
+    if font_name:
+        run.font.name = font_name
     if saved_font.get("size"):
         run.font.size = saved_font["size"]
     if bold_override is not None:
         run.font.bold = bold_override
     elif saved_font.get("bold") is not None:
         run.font.bold = saved_font["bold"]
-    if saved_font.get("color"):
+    
+    color_type = saved_font.get("color_type")
+    if color_type == 1 and saved_font.get("color"):
+        try:
+            run.font.color.rgb = saved_font["color"]
+        except Exception:
+            pass
+    elif color_type == 2 and saved_font.get("color_theme") is not None:
+        try:
+            run.font.color.theme_color = saved_font["color_theme"]
+            if saved_font.get("color_brightness") is not None:
+                run.font.color.brightness = saved_font["color_brightness"]
+        except Exception:
+            pass
+    elif saved_font.get("color"):
+        # Fallback for general RGB color
         try:
             run.font.color.rgb = saved_font["color"]
         except Exception:
@@ -1767,10 +1833,17 @@ def _replace_text_in_frame(text_frame, replacements: dict) -> None:
             saved_font["name"]  = f.name
             saved_font["size"]  = f.size
             saved_font["bold"]  = f.bold
+            saved_font["color_type"] = getattr(f.color, "type", None)
             saved_font["color"] = None
-            if getattr(f.color, "type", None) == 1:
+            if saved_font["color_type"] == 1:
                 try:
                     saved_font["color"] = f.color.rgb
+                except Exception:
+                    pass
+            elif saved_font["color_type"] == 2:
+                try:
+                    saved_font["color_theme"] = f.color.theme_color
+                    saved_font["color_brightness"] = f.color.brightness
                 except Exception:
                     pass
 
@@ -4421,8 +4494,9 @@ def _cleanup_excel_placeholders(pptx_path: str, replacements: dict) -> int:
                 first_para = shape.text_frame.paragraphs[0]
                 run = first_para.add_run()
                 run.text = fallback
-                if saved_font.get("name"):
-                    run.font.name = saved_font["name"]
+                font_name = _get_fallback_font(saved_font.get("name"))
+                if font_name:
+                    run.font.name = font_name
                 if saved_font.get("size"):
                     run.font.size = saved_font["size"]
 
