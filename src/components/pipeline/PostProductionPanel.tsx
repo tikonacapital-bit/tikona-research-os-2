@@ -62,7 +62,7 @@ export default function PostProductionPanel({
   companyName,
   nseSymbol,
   sector,
-  // vaultId / financialModelFileUrl are now resolved server-side from sessionId
+  financialModelFileUrl,
   userEmail,
   stage2Sections,
   initialReport = null,
@@ -290,6 +290,16 @@ export default function PostProductionPanel({
       return;
     }
 
+    if (!financialModelFileUrl && !useMock) {
+      const proceed = window.confirm(
+        'Warning: No financial model Excel file was found for this session.\n\n' +
+        'Generating the report now will fall back to text placeholders (charts and tables will not be injected).\n\n' +
+        'We highly recommend scrolling up to the "Vault and Documents" stage, clicking "Generate Financial Model", waiting for it to complete (~10 min), and then returning here.\n\n' +
+        'Do you want to proceed with the text-only fallback report anyway?'
+      );
+      if (!proceed) return;
+    }
+
     setPptxGenerating(true);
     setPptxElapsedSeconds(0);
     pptxTimerRef.current = setInterval(
@@ -344,7 +354,7 @@ export default function PostProductionPanel({
       }
       setPptxGenerating(false);
     }
-  }, [reportId, sessionId, useMock, slideCopyReady, handleGenerateSlideCopy]);
+  }, [reportId, sessionId, useMock, slideCopyReady, handleGenerateSlideCopy, financialModelFileUrl]);
 
   // ========================
   // Step 2: Podcast
@@ -696,6 +706,20 @@ export default function PostProductionPanel({
               )}
               {!reportId && (
                 <p className="text-[11px] text-neutral-400">Approve stage 2 first to create the report row.</p>
+              )}
+
+              {!financialModelFileUrl && !useMock && (
+                <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-xs">
+                  <p className="font-semibold flex items-center gap-1.5 mb-1">
+                    ⚠️ No Financial Model Excel Found
+                  </p>
+                  <p className="text-amber-700 leading-normal">
+                    No financial model is associated with this session. Generating the PowerPoint now will 
+                    <strong> fall back to text placeholders</strong> (charts and financial tables will not be injected). 
+                    To get the complete report, please scroll up to the <strong>Vault and Documents</strong> stage and click 
+                    <strong>"Generate Financial Model"</strong> first.
+                  </p>
+                </div>
               )}
 
               <div className="mt-4 p-3 bg-blue-50/50 border border-blue-100 rounded-lg">
