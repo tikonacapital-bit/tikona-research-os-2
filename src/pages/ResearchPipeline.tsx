@@ -925,7 +925,7 @@ export default function ResearchPipeline() {
                 </div>
 
                 {/* Company Info + Financial Snapshot */}
-                {selectedCompany && financials && (
+                {selectedCompany && (
                   <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm overflow-hidden animate-fade-up">
                     <div className="p-5">
                       <div className="flex items-start justify-between mb-4">
@@ -963,12 +963,12 @@ export default function ResearchPipeline() {
                       </div>
 
                       <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-                        <MetricCard label="Market Cap" value={formatCurrency(financials.market_cap)} />
-                        <MetricCard label="CMP" value={formatCurrency(financials.current_price)} />
-                        <MetricCard label="P/E (TTM)" value={financials.pe_ttm?.toFixed(1) ?? '-'} />
-                        <MetricCard label="ROE" value={formatPercent(financials.roe)} />
-                        <MetricCard label="ROCE" value={formatPercent(financials.roce)} />
-                        <MetricCard label="EBITDA M%" value={formatPercent(financials.ebitda_margin_ttm)} />
+                        <MetricCard label="Market Cap" value={financials ? formatCurrency(financials.market_cap) : '-'} />
+                        <MetricCard label="CMP" value={financials ? formatCurrency(financials.current_price) : '-'} />
+                        <MetricCard label="P/E (TTM)" value={financials?.pe_ttm?.toFixed(1) ?? '-'} />
+                        <MetricCard label="ROE" value={financials ? formatPercent(financials.roe) : '-'} />
+                        <MetricCard label="ROCE" value={financials ? formatPercent(financials.roce) : '-'} />
+                        <MetricCard label="EBITDA M%" value={financials ? formatPercent(financials.ebitda_margin_ttm) : '-'} />
                       </div>
                     </div>
                   </div>

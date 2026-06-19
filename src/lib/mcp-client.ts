@@ -13,7 +13,7 @@ export class SSEMCPClient {
   private nextId = 1;
   private resolvedUrl: string;
 
-  constructor(private rawSseUrl: string) {
+  constructor(rawSseUrl: string) {
     // If the URL targets the Go India Stocks MCP production server, map it to the local proxy
     // path to bypass CORS. Otherwise, connect directly.
     if (rawSseUrl.startsWith('https://goindia-mcp.fly.dev')) {
