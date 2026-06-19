@@ -136,6 +136,29 @@ export async function hasRecommendationForSession(sessionId: string): Promise<bo
 }
 
 // ========================
+// Send Push Notification
+// ========================
+
+export async function sendPushNotification(rec: Recommendation): Promise<void> {
+  const { data: functionData, error: functionError } = await supabase.functions.invoke('send-push-notification', {
+    body: {
+      company_name: rec.company_name,
+      nse_symbol: rec.nse_symbol,
+      rating: rec.rating,
+      cmp: rec.cmp,
+      target_price: rec.target_price,
+      upside_pct: rec.upside_pct,
+      validity_type: rec.validity_type,
+      validity_date: rec.validity_date,
+      session_id: rec.session_id,
+      plans: rec.plans,
+    },
+  });
+  if (functionError) throw functionError;
+  console.log('[Recommendations] Push notification sent:', functionData);
+}
+
+// ========================
 // Resend Telegram
 // ========================
 
@@ -146,6 +169,7 @@ export async function resendTelegram(rec: Recommendation): Promise<void> {
     .update({ telegram_sent: true, updated_at: new Date().toISOString() })
     .eq('id', rec.id);
 }
+
 
 // ========================
 // Internal: send to n8n → Telegram

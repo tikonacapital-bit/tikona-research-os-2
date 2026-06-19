@@ -11,6 +11,7 @@ import {
   closeRecommendation,
   deleteRecommendation,
   resendTelegram,
+  sendPushNotification,
 } from '@/lib/recommendations-api';
 import {
   PLAN_OPTIONS,
@@ -430,9 +431,29 @@ export default function Recommendations() {
   const [tradeNotes, setTradeNotes] = useState('');
   const [reportFileUrl, setReportFileUrl] = useState('');
   const [, setReportFile] = useState<File | null>(null);
-  const [sendTelegram, setSendTelegram] = useState(true);
-  const [sendPush, setSendPush] = useState(true);
+  const [createdRec, setCreatedRec] = useState<Recommendation | null>(null);
+  const [telegramSentState, setTelegramSentState] = useState(false);
+  const [pushSentState, setPushSentState] = useState(false);
+  const [isSendingTelegram, setIsSendingTelegram] = useState(false);
+  const [isSendingPush, setIsSendingPush] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+
+  const resetForm = () => {
+    setSelectedCompany(null);
+    setSearchInput('');
+    setRating('BUY');
+    setCmp('');
+    setTargetPrice('');
+    setValidityType('1_year');
+    setValidityDate('');
+    setSelectedPlans([]);
+    setTradeNotes('');
+    setReportFileUrl('');
+    setReportFile(null);
+    setCreatedRec(null);
+    setTelegramSentState(false);
+    setPushSentState(false);
+  };
 
   // ---- My Recommendations state ----
   const [allRecs, setAllRecs] = useState<Recommendation[]>([]);
@@ -524,7 +545,7 @@ export default function Recommendations() {
     try {
       // If file selected, convert to base64 — for now just use URL field
       // (full upload integration requires a vault folder; use URL paste)
-      await createRecommendation({
+      const newRec = await createRecommendation({
         company_name: selectedCompany.company_name,
         nse_symbol: selectedCompany.nse_symbol ?? '',
         rating,
@@ -536,35 +557,15 @@ export default function Recommendations() {
         trade_notes: tradeNotes || null,
         report_file_url: reportFileUrl || null,
         session_id: null,
-        send_telegram: sendTelegram,
-        send_push: sendPush,
+        send_telegram: false,
+        send_push: false,
         created_by: user?.email ?? null,
       });
 
-      let successMsg = 'Recommendation created';
-      if (sendTelegram && sendPush) {
-        successMsg = 'Recommendation created, sent to Telegram & Push Notification triggered';
-      } else if (sendTelegram) {
-        successMsg = 'Recommendation created & sent to Telegram';
-      } else if (sendPush) {
-        successMsg = 'Recommendation created & Push Notification triggered';
-      }
-      toast.success(successMsg);
-
-      // Reset form
-      setSelectedCompany(null);
-      setSearchInput('');
-      setRating('BUY');
-      setCmp('');
-      setTargetPrice('');
-      setValidityType('1_year');
-      setValidityDate('');
-      setSelectedPlans([]);
-      setTradeNotes('');
-      setReportFileUrl('');
-      setReportFile(null);
-      setSendTelegram(true);
-      setSendPush(true);
+      toast.success('Recommendation created successfully');
+      setCreatedRec(newRec);
+      setTelegramSentState(false);
+      setPushSentState(false);
     } catch (e) {
       toast.error(`Failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
     } finally {
@@ -687,285 +688,388 @@ export default function Recommendations() {
         {/* ========== CREATE TAB ========== */}
         {activeTab === 'create' && (
           <div className="max-w-3xl animate-fade-up">
-            <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm overflow-hidden">
-              <div className="px-6 py-4 border-b border-neutral-100">
-                <h2 className="text-sm font-semibold text-neutral-900">New Recommendation</h2>
-                <p className="text-xs text-neutral-500 mt-1">Will be sent to selected plan subscribers on Telegram</p>
-              </div>
-
-              <div className="p-6 space-y-5">
-                {/* Company search */}
-                <div>
-                  <label className="block text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">
-                    Company *
-                  </label>
-                  <div className="relative" ref={dropdownRef}>
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-400" />
-                    <Input
-                      value={searchInput}
-                      onChange={e => {
-                        setSearchInput(e.target.value);
-                        setIsDropdownOpen(true);
-                        if (selectedCompany && e.target.value !== selectedCompany.company_name) {
-                          setSelectedCompany(null);
-                        }
-                      }}
-                      onFocus={() => searchInput.length >= 2 && setIsDropdownOpen(true)}
-                      placeholder="Search by company name or NSE symbol..."
-                      className="pl-9 h-10 rounded-xl"
-                    />
-                    {selectedCompany && (
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-mono text-neutral-400 bg-neutral-100 px-2 py-0.5 rounded">
-                        {selectedCompany.nse_symbol}
-                      </span>
-                    )}
-                    {isDropdownOpen && companies && companies.length > 0 && (
-                      <div className="absolute z-50 w-full mt-1 bg-white border border-neutral-200 rounded-xl shadow-xl max-h-56 overflow-y-auto">
-                        {companies.map(c => (
-                          <button
-                            key={c.company_id}
-                            className="w-full text-left px-4 py-3 hover:bg-accent-50 border-b border-neutral-50 last:border-0 transition-colors"
-                            onClick={() => handleSelectCompany(c)}
-                          >
-                            <span className="font-medium text-sm text-neutral-900">{c.company_name}</span>
-                            {c.nse_symbol && (
-                              <span className="ml-2 text-xs text-neutral-400 bg-neutral-100 px-2 py-0.5 rounded font-mono">
-                                {c.nse_symbol}
-                              </span>
-                            )}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+            {createdRec ? (
+              <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm overflow-hidden p-6 text-center space-y-6">
+                <div className="inline-flex items-center justify-center h-16 w-16 rounded-full bg-green-100 text-green-600 mx-auto">
+                  <CheckCircle2 className="h-10 w-10" />
                 </div>
-
-                {/* Rating */}
                 <div>
-                  <label className="block text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">
-                    Rating *
-                  </label>
-                  <div className="flex flex-wrap gap-2">
-                    {RATINGS.map(r => {
-                      const cfg = RATING_CONFIG[r];
-                      return (
-                        <button
-                          key={r}
-                          onClick={() => setRating(r)}
-                          className={cn(
-                            'px-3 py-2 rounded-lg text-xs font-semibold border transition-all',
-                            rating === r
-                              ? `${cfg.bg} ${cfg.color} ${cfg.border} shadow-sm`
-                              : 'bg-neutral-50 text-neutral-500 border-neutral-200 hover:border-neutral-300'
-                          )}
-                        >
-                          {r}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* CMP + Target */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">
-                      CMP (₹)
-                    </label>
-                    <div className="relative">
-                      <Input
-                        type="number"
-                        value={cmp}
-                        onChange={e => setCmp(e.target.value)}
-                        placeholder="e.g. 2800"
-                        className="h-10 rounded-xl pr-10"
-                      />
-                      <button
-                        type="button"
-                        onClick={handleFetchCmp}
-                        disabled={!selectedCompany || !financials}
-                        title="Fill CMP from equity database"
-                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-neutral-400 hover:text-accent-600 hover:bg-accent-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                      >
-                        <RefreshCcw className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">
-                      Target Price (₹) *
-                    </label>
-                    <div className="relative">
-                      <Input
-                        type="number"
-                        value={targetPrice}
-                        onChange={e => setTargetPrice(e.target.value)}
-                        placeholder="e.g. 3500"
-                        className="h-10 rounded-xl"
-                      />
-                      {upside != null && (
-                        <span className={cn(
-                          'absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold',
-                          upside >= 0 ? 'text-green-600' : 'text-red-600'
-                        )}>
-                          {upside > 0 ? '+' : ''}{upside}%
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Validity */}
-                <div>
-                  <label className="block text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">
-                    Validity *
-                  </label>
-                  <div className="flex gap-2 mb-2">
-                    {([['1_year', '1 Year'], ['custom', 'Custom Date']] as [ValidityType, string][]).map(([v, l]) => (
-                      <button
-                        key={v}
-                        onClick={() => setValidityType(v)}
-                        className={cn(
-                          'px-4 py-2 rounded-lg text-xs font-medium border transition-all',
-                          validityType === v
-                            ? 'bg-accent-600 text-white border-accent-600 shadow-sm'
-                            : 'bg-neutral-50 text-neutral-600 border-neutral-200 hover:border-neutral-300'
-                        )}
-                      >
-                        {l}
-                      </button>
-                    ))}
-                  </div>
-                  {validityType === '1_year' && (
-                    <p className="text-xs text-neutral-400">
-                      Expires on{' '}
-                      <strong className="text-neutral-600">
-                        {new Date(new Date().setFullYear(new Date().getFullYear() + 1))
-                          .toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })}
-                      </strong>
-                    </p>
-                  )}
-                  {validityType === 'custom' && (
-                    <Input
-                      type="date"
-                      value={validityDate}
-                      onChange={e => setValidityDate(e.target.value)}
-                      min={new Date().toISOString().split('T')[0]}
-                      className="h-10 rounded-xl w-48"
-                    />
-                  )}
-                </div>
-
-                {/* Plans */}
-                <div>
-                  <label className="block text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">
-                    Share with Plans *
-                  </label>
-                  <div className="flex flex-wrap gap-2">
-                    {PLAN_OPTIONS.map(plan => (
-                      <button
-                        key={plan.id}
-                        onClick={() => togglePlan(plan.id)}
-                        className={cn(
-                          'flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium border transition-all',
-                          selectedPlans.includes(plan.id)
-                            ? 'bg-accent-600 text-white border-accent-600 shadow-sm'
-                            : 'bg-neutral-50 text-neutral-600 border-neutral-200 hover:border-neutral-300'
-                        )}
-                      >
-                        <span className={cn(
-                          'h-3.5 w-3.5 rounded border-2 flex items-center justify-center transition-all',
-                          selectedPlans.includes(plan.id)
-                            ? 'bg-white/30 border-white'
-                            : 'border-neutral-300'
-                        )}>
-                          {selectedPlans.includes(plan.id) && (
-                            <svg className="h-2 w-2 text-white" viewBox="0 0 8 8" fill="none">
-                              <path d="M1 4l2 2 4-4" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                          )}
-                        </span>
-                        {plan.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Trade Notes */}
-                <div>
-                  <label className="block text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">
-                    Trade Notes
-                  </label>
-                  <textarea
-                    value={tradeNotes}
-                    onChange={e => setTradeNotes(e.target.value)}
-                    placeholder="Add rationale, key catalysts, risk factors..."
-                    rows={3}
-                    className="w-full px-3 py-3 text-sm border border-neutral-200 rounded-xl resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 focus-visible:border-accent-400 text-neutral-800 placeholder:text-neutral-400"
-                  />
-                </div>
-
-                {/* Report File URL */}
-                <div>
-                  <label className="block text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">
-                    Research Report (URL)
-                  </label>
-                  <div className="relative">
-                    <FileText className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-400" />
-                    <Input
-                      value={reportFileUrl}
-                      onChange={e => setReportFileUrl(e.target.value)}
-                      placeholder="Paste Google Drive or PDF link..."
-                      className="pl-9 h-10 rounded-xl"
-                    />
-                  </div>
-                  <p className="text-xs text-neutral-400 mt-1">
-                    Paste the report URL from your vault or any accessible link
+                  <h2 className="text-xl font-bold text-neutral-900">Recommendation Created!</h2>
+                  <p className="text-sm text-neutral-500 mt-1">
+                    The recommendation for <strong>{createdRec.company_name} ({createdRec.nse_symbol})</strong> has been saved.
                   </p>
                 </div>
 
-                {/* Telegram & Push toggles + Create */}
-                <div className="flex items-center justify-between pt-2 border-t border-neutral-100">
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setSendTelegram(!sendTelegram)}
-                      className={cn(
-                        'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border transition-all',
-                        sendTelegram
-                          ? 'bg-accent-50 text-accent-700 border-accent-200'
-                          : 'bg-neutral-50 text-neutral-500 border-neutral-200'
-                      )}
-                    >
-                      <Send className={cn('h-4 w-4', sendTelegram ? 'text-accent-600' : 'text-neutral-400')} />
-                      {sendTelegram ? 'Send to Telegram' : 'Skip Telegram'}
-                    </button>
-                    <button
-                      onClick={() => setSendPush(!sendPush)}
-                      className={cn(
-                        'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border transition-all',
-                        sendPush
-                          ? 'bg-accent-50 text-accent-700 border-accent-200'
-                          : 'bg-neutral-50 text-neutral-500 border-neutral-200'
-                      )}
-                    >
-                      <Bell className={cn('h-4 w-4', sendPush ? 'text-accent-600' : 'text-neutral-400')} />
-                      {sendPush ? 'Send Push' : 'Skip Push'}
-                    </button>
+                {/* Recommendation Details Card */}
+                <div className="max-w-md mx-auto bg-neutral-50 border border-neutral-200 rounded-xl p-4 text-left text-sm space-y-2">
+                  <div className="flex justify-between border-b border-neutral-200/60 pb-2">
+                    <span className="text-neutral-500 font-medium">Rating</span>
+                    <RatingBadge rating={createdRec.rating} />
                   </div>
+                  <div className="flex justify-between border-b border-neutral-200/60 pb-2">
+                    <span className="text-neutral-500 font-medium">CMP / Target Price</span>
+                    <span className="font-semibold text-neutral-800">
+                      ₹{formatNum(createdRec.cmp)} / ₹{formatNum(createdRec.target_price)}
+                    </span>
+                  </div>
+                  {createdRec.upside_pct != null && (
+                    <div className="flex justify-between border-b border-neutral-200/60 pb-2">
+                      <span className="text-neutral-500 font-medium">Expected Upside</span>
+                      <span className="font-semibold text-green-600">+{createdRec.upside_pct}%</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between border-b border-neutral-200/60 pb-2">
+                    <span className="text-neutral-500 font-medium">Plans</span>
+                    <div className="flex flex-wrap gap-1 justify-end">
+                      {createdRec.plans.map(p => <PlanBadge key={p} planId={p} />)}
+                    </div>
+                  </div>
+                  <div className="flex justify-between pb-1">
+                    <span className="text-neutral-500 font-medium">Validity</span>
+                    <span className="text-neutral-800 font-medium">{validityLabel(createdRec)}</span>
+                  </div>
+                </div>
+
+                {/* Action Buttons to Send to Telegram & Send Push */}
+                <div className="flex flex-col sm:flex-row gap-3 justify-center max-w-md mx-auto">
                   <Button
-                    onClick={handleCreate}
-                    disabled={isCreating || !selectedCompany || !targetPrice || selectedPlans.length === 0}
-                    className="h-10 px-6 rounded-xl bg-accent-600 hover:bg-accent-700 text-white font-medium shadow-sm"
+                    onClick={async () => {
+                      setIsSendingTelegram(true);
+                      try {
+                        await resendTelegram(createdRec);
+                        setTelegramSentState(true);
+                        toast.success('Sent to Telegram successfully!');
+                      } catch (err) {
+                        toast.error(`Telegram failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+                      } finally {
+                        setIsSendingTelegram(false);
+                      }
+                    }}
+                    disabled={telegramSentState || isSendingTelegram}
+                    className={cn(
+                      "flex-1 h-11 rounded-xl font-medium shadow-sm transition-all",
+                      telegramSentState
+                        ? "bg-green-50 hover:bg-green-50 text-green-700 border border-green-200 cursor-default"
+                        : "bg-blue-600 hover:bg-blue-700 text-white"
+                    )}
                   >
-                    {isCreating ? (
-                      <><Spinner size="sm" className="mr-2" /> Creating...</>
+                    {isSendingTelegram ? (
+                      <><Spinner size="sm" className="mr-2" /> Sending...</>
+                    ) : telegramSentState ? (
+                      <><CheckCircle2 className="h-4 w-4 mr-2" /> Sent to Telegram</>
                     ) : (
-                      'Create Recommendation'
+                      <><Send className="h-4 w-4 mr-2" /> Send to Telegram</>
+                    )}
+                  </Button>
+
+                  <Button
+                    onClick={async () => {
+                      setIsSendingPush(true);
+                      try {
+                        await sendPushNotification(createdRec);
+                        setPushSentState(true);
+                        toast.success('Push Notification triggered successfully!');
+                      } catch (err) {
+                        toast.error(`Push failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+                      } finally {
+                        setIsSendingPush(false);
+                      }
+                    }}
+                    disabled={pushSentState || isSendingPush}
+                    className={cn(
+                      "flex-1 h-11 rounded-xl font-medium shadow-sm transition-all",
+                      pushSentState
+                        ? "bg-green-50 hover:bg-green-50 text-green-700 border border-green-200 cursor-default"
+                        : "bg-accent-600 hover:bg-accent-700 text-white"
+                    )}
+                  >
+                    {isSendingPush ? (
+                      <><Spinner size="sm" className="mr-2" /> Sending...</>
+                    ) : pushSentState ? (
+                      <><CheckCircle2 className="h-4 w-4 mr-2" /> Push Sent</>
+                    ) : (
+                      <><Bell className="h-4 w-4 mr-2" /> Send Push</>
                     )}
                   </Button>
                 </div>
+
+                {/* Navigation Buttons: My Recommendation / Next */}
+                <div className="border-t border-neutral-100 pt-6 flex justify-center gap-4">
+                  <Button
+                    onClick={() => {
+                      setActiveTab('my');
+                      resetForm();
+                    }}
+                    variant="outline"
+                    className="h-10 rounded-xl px-5 hover:bg-neutral-50 transition-colors"
+                  >
+                    My Recommendations
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      resetForm();
+                    }}
+                    className="h-10 rounded-xl px-6 bg-neutral-900 hover:bg-neutral-800 text-white font-medium transition-all shadow-sm"
+                  >
+                    Next (Create Another)
+                  </Button>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm overflow-hidden">
+                <div className="px-6 py-4 border-b border-neutral-100">
+                  <h2 className="text-sm font-semibold text-neutral-900">New Recommendation</h2>
+                  <p className="text-xs text-neutral-500 mt-1">Will be sent to selected plan subscribers on Telegram</p>
+                </div>
+
+                <div className="p-6 space-y-5">
+                  {/* Company search */}
+                  <div>
+                    <label className="block text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                      Company *
+                    </label>
+                    <div className="relative" ref={dropdownRef}>
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-400" />
+                      <Input
+                        value={searchInput}
+                        onChange={e => {
+                          setSearchInput(e.target.value);
+                          setIsDropdownOpen(true);
+                          if (selectedCompany && e.target.value !== selectedCompany.company_name) {
+                            setSelectedCompany(null);
+                          }
+                        }}
+                        onFocus={() => searchInput.length >= 2 && setIsDropdownOpen(true)}
+                        placeholder="Search by company name or NSE symbol..."
+                        className="pl-9 h-10 rounded-xl"
+                      />
+                      {selectedCompany && (
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-mono text-neutral-400 bg-neutral-100 px-2 py-0.5 rounded">
+                          {selectedCompany.nse_symbol}
+                        </span>
+                      )}
+                      {isDropdownOpen && companies && companies.length > 0 && (
+                        <div className="absolute z-50 w-full mt-1 bg-white border border-neutral-200 rounded-xl shadow-xl max-h-56 overflow-y-auto">
+                          {companies.map(c => (
+                            <button
+                              key={c.company_id}
+                              className="w-full text-left px-4 py-3 hover:bg-accent-50 border-b border-neutral-50 last:border-0 transition-colors"
+                              onClick={() => handleSelectCompany(c)}
+                            >
+                              <span className="font-medium text-sm text-neutral-900">{c.company_name}</span>
+                              {c.nse_symbol && (
+                                <span className="ml-2 text-xs text-neutral-400 bg-neutral-100 px-2 py-0.5 rounded font-mono">
+                                  {c.nse_symbol}
+                                </span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Rating */}
+                  <div>
+                    <label className="block text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                      Rating *
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {RATINGS.map(r => {
+                        const cfg = RATING_CONFIG[r];
+                        return (
+                          <button
+                            key={r}
+                            onClick={() => setRating(r)}
+                            className={cn(
+                              'px-3 py-2 rounded-lg text-xs font-semibold border transition-all',
+                              rating === r
+                                ? `${cfg.bg} ${cfg.color} ${cfg.border} shadow-sm`
+                                : 'bg-neutral-50 text-neutral-500 border-neutral-200 hover:border-neutral-300'
+                            )}
+                          >
+                            {r}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* CMP + Target */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                        CMP (₹)
+                      </label>
+                      <div className="relative">
+                        <Input
+                          type="number"
+                          value={cmp}
+                          onChange={e => setCmp(e.target.value)}
+                          placeholder="e.g. 2800"
+                          className="h-10 rounded-xl pr-10"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleFetchCmp}
+                          disabled={!selectedCompany || !financials}
+                          title="Fill CMP from equity database"
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-neutral-400 hover:text-accent-600 hover:bg-accent-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                        >
+                          <RefreshCcw className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                        Target Price (₹) *
+                      </label>
+                      <div className="relative">
+                        <Input
+                          type="number"
+                          value={targetPrice}
+                          onChange={e => setTargetPrice(e.target.value)}
+                          placeholder="e.g. 3500"
+                          className="h-10 rounded-xl"
+                        />
+                        {upside != null && (
+                          <span className={cn(
+                            'absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold',
+                            upside >= 0 ? 'text-green-600' : 'text-red-600'
+                          )}>
+                            {upside > 0 ? '+' : ''}{upside}%
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Validity */}
+                  <div>
+                    <label className="block text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                      Validity *
+                    </label>
+                    <div className="flex gap-2 mb-2">
+                      {([['1_year', '1 Year'], ['custom', 'Custom Date']] as [ValidityType, string][]).map(([v, l]) => (
+                        <button
+                          key={v}
+                          onClick={() => setValidityType(v)}
+                          className={cn(
+                            'px-4 py-2 rounded-lg text-xs font-medium border transition-all',
+                            validityType === v
+                              ? 'bg-accent-600 text-white border-accent-600 shadow-sm'
+                              : 'bg-neutral-50 text-neutral-600 border-neutral-200 hover:border-neutral-300'
+                          )}
+                        >
+                          {l}
+                        </button>
+                      ))}
+                    </div>
+                    {validityType === '1_year' && (
+                      <p className="text-xs text-neutral-400">
+                        Expires on{' '}
+                        <strong className="text-neutral-600">
+                          {new Date(new Date().setFullYear(new Date().getFullYear() + 1))
+                            .toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })}
+                        </strong>
+                      </p>
+                    )}
+                    {validityType === 'custom' && (
+                      <Input
+                        type="date"
+                        value={validityDate}
+                        onChange={e => setValidityDate(e.target.value)}
+                        min={new Date().toISOString().split('T')[0]}
+                        className="h-10 rounded-xl w-48"
+                      />
+                    )}
+                  </div>
+
+                  {/* Plans */}
+                  <div>
+                    <label className="block text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                      Share with Plans *
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {PLAN_OPTIONS.map(plan => (
+                        <button
+                          key={plan.id}
+                          onClick={() => togglePlan(plan.id)}
+                          className={cn(
+                            'flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium border transition-all',
+                            selectedPlans.includes(plan.id)
+                              ? 'bg-accent-600 text-white border-accent-600 shadow-sm'
+                              : 'bg-neutral-50 text-neutral-600 border-neutral-200 hover:border-neutral-300'
+                          )}
+                        >
+                          <span className={cn(
+                            'h-3.5 w-3.5 rounded border-2 flex items-center justify-center transition-all',
+                            selectedPlans.includes(plan.id)
+                              ? 'bg-white/30 border-white'
+                              : 'border-neutral-300'
+                          )}>
+                            {selectedPlans.includes(plan.id) && (
+                              <svg className="h-2 w-2 text-white" viewBox="0 0 8 8" fill="none">
+                                <path d="M1 4l2 2 4-4" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            )}
+                          </span>
+                          {plan.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Trade Notes */}
+                  <div>
+                    <label className="block text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                      Trade Notes
+                    </label>
+                    <textarea
+                      value={tradeNotes}
+                      onChange={e => setTradeNotes(e.target.value)}
+                      placeholder="Add rationale, key catalysts, risk factors..."
+                      rows={3}
+                      className="w-full px-3 py-3 text-sm border border-neutral-200 rounded-xl resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 focus-visible:border-accent-400 text-neutral-800 placeholder:text-neutral-400"
+                    />
+                  </div>
+
+                  {/* Report File URL */}
+                  <div>
+                    <label className="block text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                      Research Report (URL)
+                    </label>
+                    <div className="relative">
+                      <FileText className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-400" />
+                      <Input
+                        value={reportFileUrl}
+                        onChange={e => setReportFileUrl(e.target.value)}
+                        placeholder="Paste Google Drive or PDF link..."
+                        className="pl-9 h-10 rounded-xl"
+                      />
+                    </div>
+                    <p className="text-xs text-neutral-400 mt-1">
+                      Paste the report URL from your vault or any accessible link
+                    </p>
+                  </div>
+
+                  {/* Create Button only */}
+                  <div className="flex items-center justify-end pt-2 border-t border-neutral-100">
+                    <Button
+                      onClick={handleCreate}
+                      disabled={isCreating || !selectedCompany || !targetPrice || selectedPlans.length === 0}
+                      className="h-10 px-6 rounded-xl bg-accent-600 hover:bg-accent-700 text-white font-medium shadow-sm transition-all"
+                    >
+                      {isCreating ? (
+                        <><Spinner size="sm" className="mr-2 animate-spin" /> Creating...</>
+                      ) : (
+                        'Create Recommendation'
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
