@@ -1337,7 +1337,7 @@ export default function ResearchPipeline() {
                         <div className="flex md:flex-col gap-1 overflow-x-auto md:overflow-x-visible">
                           {stage2Sections.map((section, i) => (
                             <button
-                              key={section.key}
+                              key={`${section.key}-${i}`}
                               onClick={() => setActiveReportTab(i)}
                               className={cn(
                                 'flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-all text-left w-full',
