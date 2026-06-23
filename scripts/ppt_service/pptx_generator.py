@@ -62,6 +62,11 @@ _BULLET_LIST_KEYS: set[str] = {
     "entry_strategy",
     "review_strategy",
     "exit_strategy",
+    "entry_strategy_1",
+    "review_strategy_2",
+    "exit_strategy_3",
+    "key_industry",
+    "key_industry_risk",
 }
 
 
@@ -1760,6 +1765,33 @@ def map_replacements(company, metadata, fin_model, sections):
     return replacements
 
 
+def _sync_equivalent_keys(d: dict) -> None:
+    """Synchronise canonical schema keys and alternative UI/template keys.
+
+    If a canonical key is present, its value is copied to the alternative key.
+    If an alternative key is present, its value is copied to the canonical key.
+    """
+    mappings = {
+        "entry_strategy": "entry_strategy_1",
+        "review_strategy": "review_strategy_2",
+        "exit_strategy": "exit_strategy_3",
+        "financial_commentary": "financial_commentry",
+        "valuation_commentary": "commentry",
+        "key_industry_tailwinds": "key_industry",
+        "key_industry_risks": "key_industry_risk",
+        "company_overview": "COMPANY_OVERVIEW",
+        "saarthi_summary_s16": "saarthi_summary",
+    }
+    # Sync canonical -> alternative
+    for canonical, alt in mappings.items():
+        if canonical in d and d[canonical]:
+            d[alt] = d[canonical]
+    # Sync alternative -> canonical
+    for canonical, alt in mappings.items():
+        if alt in d and d[alt] and (canonical not in d or not d[canonical]):
+            d[canonical] = d[alt]
+
+
 # ── Placeholder preview (called by /preview-placeholders) ─────────────────────
 
 def preview_ppt_placeholders(report_id: str, session_id: str, *, ignore_overrides: bool = False) -> dict:
@@ -1798,6 +1830,7 @@ def preview_ppt_placeholders(report_id: str, session_id: str, *, ignore_override
                 continue
             placeholders[k] = value
             applied += 1
+        _sync_equivalent_keys(placeholders)
         logger.info("Preview: Applied %d slide-copy values from ppt_content_json", applied)
 
     # Merge previously-saved overrides so the UI shows confirmed values
@@ -1808,6 +1841,7 @@ def preview_ppt_placeholders(report_id: str, session_id: str, *, ignore_override
             saved = json.loads(saved_raw)
             if isinstance(saved, dict):
                 placeholders.update(saved)
+                _sync_equivalent_keys(placeholders)
         except Exception:
             pass
 
@@ -4836,6 +4870,7 @@ def generate_pptx_for_report(report_id: str, session_id: str, *, use_mock: bool 
                     continue
                 replacements[k] = value
                 applied += 1
+            _sync_equivalent_keys(replacements)
             logger.info("Applied %d slide-copy values from ppt_content_json", applied)
             warnings.append(f"Slide copy fields applied: {applied}")
         else:
@@ -4849,6 +4884,7 @@ def generate_pptx_for_report(report_id: str, session_id: str, *, use_mock: bool 
                 saved_overrides = json.loads(saved_ppt_raw)
                 if isinstance(saved_overrides, dict):
                     replacements.update(saved_overrides)
+                    _sync_equivalent_keys(replacements)
                     # Re-normalise bullet placeholders after the override merge
                     # — overrides from the UI / LLM may bypass map_replacements'
                     # post-processing.
