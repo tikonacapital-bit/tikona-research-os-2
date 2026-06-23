@@ -242,6 +242,60 @@ def _section_by_any(sections: list[dict], keywords: list[str]) -> str:
     return ""
 
 
+def _split_entry_review_exit(text: str) -> tuple[str, str, str]:
+    """Split a combined Entry/Review/Exit strategy section into three parts.
+
+    Looks for heading markers like:
+    - **Entry Strategy:**  /  **Review Strategy:**  /  **Exit Strategy:**
+    - ## Entry Strategy  /  ## Review Strategy  /  ## Exit Strategy
+    - Entry Strategy:  /  Review Strategy:  /  Exit Strategy:
+
+    Returns (entry_text, review_text, exit_text).  Any part not found returns "".
+    """
+    if not text or not text.strip():
+        return ("", "", "")
+
+    # Build a regex that captures the three sub-sections.  The pattern matches
+    # any of the common heading formats the Stage-2 prompt produces.
+    _heading = r"(?:#{1,3}\s*|[-*]\s*)?(?:\*\*\s*)?"   # optional #/*/- prefix
+    _trail   = r"(?:\s*\*\*)?(?:\s*:?\s*)"              # optional **/ : suffix
+
+    entry_pat  = re.compile(_heading + r"entry\s+strategy" + _trail, re.I)
+    review_pat = re.compile(_heading + r"review\s+strategy" + _trail, re.I)
+    exit_pat   = re.compile(_heading + r"exit\s+strategy" + _trail, re.I)
+
+    # Find the start positions of each heading
+    entry_m  = entry_pat.search(text)
+    review_m = review_pat.search(text)
+    exit_m   = exit_pat.search(text)
+
+    # Collect (start_of_content, pattern_name) tuples, sorted by position
+    markers: list[tuple[int, str]] = []
+    if entry_m:
+        markers.append((entry_m.end(), "entry"))
+    if review_m:
+        markers.append((review_m.end(), "review"))
+    if exit_m:
+        markers.append((exit_m.end(), "exit"))
+
+    if not markers:
+        # No sub-headings found — cannot split
+        return ("", "", "")
+
+    markers.sort(key=lambda x: x[0])
+
+    parts: dict[str, str] = {}
+    for i, (start, name) in enumerate(markers):
+        end = markers[i + 1][0] if i + 1 < len(markers) else len(text)
+        # Walk backwards from end to skip the next heading's prefix
+        if i + 1 < len(markers):
+            next_match = [m for m in (entry_m, review_m, exit_m) if m and m.end() == markers[i + 1][0]]
+            if next_match:
+                end = next_match[0].start()
+        parts[name] = text[start:end].strip()
+
+    return (parts.get("entry", ""), parts.get("review", ""), parts.get("exit", ""))
+
 def _truncate_words(text: str, max_words: int, *, max_len: int = 240) -> str:
     cleaned = _clean_prose(text, max_len=max(max_len, len(text or "")))
     words = cleaned.split()
@@ -884,15 +938,17 @@ def _enrich_financial_model_for_house_deck(
 
     if not fin_model.get("trading_strategy"):
         strategy_text = _section_by_any(sections, ["trading", "strategy", "exit", "entry"]) or narrative
+        # Parse the section into Entry / Review / Exit sub-parts using heading markers
+        entry_part, review_part, exit_part = _split_entry_review_exit(strategy_text)
         fin_model["trading_strategy"] = {
             "entry_range": "Accumulate selectively",
-            "entry_rationale": _clean_prose(strategy_text, max_len=220),
+            "entry_rationale": _clean_prose(entry_part or strategy_text, max_len=1200),
             "position_size": "Risk-managed position",
-            "review_frequency": "Quarterly",
-            "review_metrics": _bullets_from_text(strategy_text, limit=4, max_len=120),
+            "review_frequency": _clean_prose(review_part, max_len=1200) if review_part else "Review quarterly against thesis milestones.",
+            "review_metrics": _bullets_from_text(review_part or strategy_text, limit=6, max_len=200),
             "upside_exit": ["Review after target achievement"],
-            "downside_exit": "Exit if thesis invalidation triggers materialise",
-            "thesis_breaking_exits": _bullets_from_text(_section_by_any(sections, ["risk"]) or strategy_text, limit=3, max_len=140),
+            "downside_exit": _clean_prose(exit_part, max_len=1200) if exit_part else "Exit if thesis invalidation triggers materialise.",
+            "thesis_breaking_exits": _bullets_from_text(exit_part or _section_by_any(sections, ["risk"]) or strategy_text, limit=5, max_len=200),
         }
 
     return fin_model
@@ -1709,21 +1765,21 @@ def map_replacements(company, metadata, fin_model, sections):
     entry_text = _clean_prose(
         str(trading.get("entry_rationale") or trading.get("entry_range") or
             "Accumulate at current market price with defined risk."),
-        max_len=300,
+        max_len=1200,
     )
     review_metrics = trading.get("review_metrics") or []
     review_text = _clean_prose(
         str(trading.get("review_frequency") or
             "; ".join(str(m) for m in review_metrics[:2]) or
             "Review quarterly against thesis milestones."),
-        max_len=300,
+        max_len=1200,
     )
     exits = trading.get("thesis_breaking_exits") or []
     exit_text = _clean_prose(
         str(trading.get("downside_exit") or
             "; ".join(str(x) for x in exits[:2]) or
             "Exit on thesis invalidation or sustained breach of support."),
-        max_len=300,
+        max_len=1200,
     )
     replacements["entry_strategy_1"]  = entry_text
     replacements["review_strategy_2"] = review_text

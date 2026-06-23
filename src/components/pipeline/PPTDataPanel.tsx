@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -243,6 +243,15 @@ export default function PPTDataPanel({
   const [values, setValues] = useState<Record<string, string>>({});
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set(['Cover & Market Data', 'Investment Thesis']));
 
+  // Use a ref for onConfirmed so changing the callback doesn't re-trigger
+  // the initial load effect and wipe unsaved user edits.
+  const onConfirmedRef = useRef(onConfirmed);
+  useEffect(() => { onConfirmedRef.current = onConfirmed; }, [onConfirmed]);
+
+  // Track whether we've already loaded once to prevent re-fetching on
+  // parent re-renders (which would discard unsaved field edits).
+  const hasLoadedRef = useRef(false);
+
   const loadPlaceholders = useCallback(async () => {
     if (!reportId || !serviceAvailable) return;
     setLoading(true);
@@ -260,16 +269,18 @@ export default function PPTDataPanel({
       setWarnings(result.warnings || []);
       if (result.has_saved_overrides) {
         setConfirmed(true);
-        onConfirmed(filtered);
+        onConfirmedRef.current(filtered);
       }
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Failed to load PPT data');
     } finally {
       setLoading(false);
     }
-  }, [reportId, sessionId, serviceAvailable, onConfirmed]);
+  }, [reportId, sessionId, serviceAvailable]);
 
   useEffect(() => {
+    if (hasLoadedRef.current) return;
+    hasLoadedRef.current = true;
     loadPlaceholders();
   }, [loadPlaceholders]);
 
