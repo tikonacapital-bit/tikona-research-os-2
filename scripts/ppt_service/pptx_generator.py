@@ -2485,6 +2485,12 @@ def _read_timeline_rows(
     return rows
 
 
+def _set_cell_left_align(cell, padding: float = 0.02) -> None:
+    """Set cell text to left alignment and reposition the anchor so it does not overflow."""
+    cell.get_text().set_ha("left")
+    cell.get_text().set_x(padding)
+
+
 def _wrap_table_cells(
     cell_rows: list[list[Any]],
     col_widths: list[float],
@@ -2759,7 +2765,7 @@ def _render_peer_table(excel_path: str) -> bytes | None:
             if c == 0:
                 cell.get_text().set_color("white")
                 cell.get_text().set_fontweight("bold")
-                cell.get_text().set_ha("left")
+                _set_cell_left_align(cell)
             else:
                 cell.get_text().set_text("")
         elif style == "header":
@@ -2769,7 +2775,7 @@ def _render_peer_table(excel_path: str) -> bytes | None:
         else:
             if c == 0:
                 cell.set_facecolor("#F4F7FC")
-                cell.get_text().set_ha("left")
+                _set_cell_left_align(cell)
                 if rows[r][0].upper().startswith("GRAVITA"):
                     cell.get_text().set_fontweight("bold")
             else:
@@ -3103,10 +3109,11 @@ def _render_governance_table(excel_path: str) -> bytes | None:
                 cell.get_text().set_color("white")
                 cell.get_text().set_fontweight("bold")
                 cell.get_text().set_ha("center")
+                cell.get_text().set_x(0.5)
             else:
                 cell.set_facecolor("white")
                 if c == 0:
-                    cell.get_text().set_ha("left")
+                    _set_cell_left_align(cell)
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=220, bbox_inches="tight", pad_inches=0.02, facecolor=fig.get_facecolor())
     plt.close(fig)
@@ -3176,7 +3183,7 @@ def _render_key_risks_table(excel_path: str) -> bytes | None:
             else:
                 cell.set_facecolor("white")
                 if c in {1, 2, 3, 4}:
-                    cell.get_text().set_ha("left")
+                    _set_cell_left_align(cell)
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=220, bbox_inches="tight", pad_inches=0.02, facecolor=fig.get_facecolor())
     plt.close(fig)
@@ -3304,14 +3311,14 @@ def _render_formula_sheet_table(
                 cell.set_facecolor("#FFA500")
                 cell.get_text().set_color("white")
                 cell.get_text().set_fontweight("bold")
-                cell.get_text().set_ha("left")
+                _set_cell_left_align(cell)
             else:
                 cell.set_facecolor("#FFFFFF")
                 cell.get_text().set_text("")
         else:
             if c == 0:
                 cell.set_facecolor("#FFFFFF")
-                cell.get_text().set_ha("left")
+                _set_cell_left_align(cell)
                 cell.PAD = 0.01
             else:
                 cell.set_facecolor("#F7FAFF" if c < 6 else "#FFF1D9")
@@ -4097,7 +4104,7 @@ def _render_financial_summary_dashboard(excel_path: str, company_name: str) -> b
         else:
             if c == 0:
                 cell.set_facecolor("#EEF2FA")
-                cell.get_text().set_ha("left")
+                _set_cell_left_align(cell)
                 cell.PAD = 0.02
             else:
                 cell.set_facecolor("#F7FAFF" if c <= 3 else "#FFF1D9")
