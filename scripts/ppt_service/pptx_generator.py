@@ -665,8 +665,28 @@ def _build_financial_model(ticker: str, model_json: dict | None, warnings: list[
     ):
         _copy_if_present(base, model_json, key)
 
-    if "saarthi" not in base and model_json.get("saarthi_scorecard"):
-        base["saarthi"] = model_json["saarthi_scorecard"]
+    if "saarthi" not in base:
+        if model_json.get("saarthi_scorecard"):
+            base["saarthi"] = model_json["saarthi_scorecard"]
+        elif "thesis" in model_json:
+            thesis_data = model_json["thesis"] or {}
+            if "saarthi_dimensions" in thesis_data or "saarthi_total" in thesis_data:
+                base["saarthi"] = {
+                    "total_score": thesis_data.get("saarthi_total", 70),
+                    "max_score": 100,
+                    "rating": thesis_data.get("saarthi_rating") or "BUY",
+                    "dimensions": [
+                        {
+                            "code": d.get("key"),
+                            "name": d.get("name"),
+                            "score": d.get("score", 10),
+                            "max_score": d.get("max_score", 15),
+                            "assessment": d.get("rationale") or "",
+                            "key_evidence": d.get("rationale") or "",
+                        }
+                        for d in thesis_data.get("saarthi_dimensions") or []
+                    ]
+                }
 
     if "segments" not in base:
         business_summary = model_json.get("business_summary") or {}
