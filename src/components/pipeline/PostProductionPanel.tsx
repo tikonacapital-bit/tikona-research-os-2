@@ -17,6 +17,7 @@ import {
   generatePptx,
   syncSlidesToPdf,
   PPT_SERVICE_URL,
+  updateCustomSection,
 } from '@/lib/api';
 import { runPptCopywriting } from '@/lib/anthropic-pipeline';
 import { savePptContent, getPptContent } from '@/lib/pipeline-api';
@@ -453,10 +454,22 @@ export default function PostProductionPanel({
     }
   }, [reportId, pollSupabaseColumn]);
 
+  const handleSaveScript = useCallback(async (newScript: string) => {
+    if (!reportId) return;
+    try {
+      await updateCustomSection(reportId, 'podcast_script', newScript);
+    } catch (err) {
+      console.error('[PostProduction] Failed to auto-save podcast script:', err);
+    }
+  }, [reportId]);
+
   const handleGenerateAudio = useCallback(async () => {
     if (!reportId || !podcastScript) return;
     setAudioGenerating(true);
     try {
+      // Auto-save the latest script version to database first
+      await updateCustomSection(reportId, 'podcast_script', podcastScript);
+
       const response = await fetch(`${N8N_BASE}/synthesize-podcast`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1047,6 +1060,7 @@ export default function PostProductionPanel({
                   <textarea
                     value={podcastScript}
                     onChange={(e) => setPodcastScript(e.target.value)}
+                    onBlur={(e) => handleSaveScript(e.target.value)}
                     className="w-full rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-xs text-neutral-800 font-mono leading-relaxed resize-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 focus-visible:border-accent-400"
                     style={{ minHeight: '120px', maxHeight: '300px' }}
                     spellCheck={false}
