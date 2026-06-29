@@ -782,15 +782,29 @@ class PeerDetailed(BaseModel):
     roe_pct: Optional[float] = None
 
 
+class OperationalChart(BaseModel):
+    title: str
+    chart_type: Literal["bar", "line", "stacked_bar", "donut"]
+    years: list[str]
+    values: list[Optional[float]] = Field(default_factory=list)
+    ylabel: Optional[str] = None
+    series_names: Optional[list[str]] = None
+    stacked_values: Optional[dict[str, list[Optional[float]]]] = None
+
 class OperationalData(BaseModel):
-    years: list[str] = Field(default_factory=list)
-    volume_segments: dict[str, list[Optional[float]]] = Field(default_factory=dict)
-    capacity_utilisation_pct: list[Optional[float]] = Field(default_factory=list)
-    countries_of_operation: list[Optional[float]] = Field(default_factory=list)
-    plants_india: list[Optional[float]] = Field(default_factory=list)
-    plants_overseas: list[Optional[float]] = Field(default_factory=list)
-    revenue_mix_pct: dict[str, float] = Field(default_factory=dict)
-    geography_mix_pct: dict[str, float] = Field(default_factory=dict)
+    # Dynamic specifications determined by AI
+    business_model_category: Literal["manufacturing", "services", "bfsi", "consumer", "general"]
+    charts: list[OperationalChart] = Field(default_factory=list)
+
+    # Legacy fields (retained for backward compatibility and optional validation)
+    years: Optional[list[str]] = Field(default_factory=list)
+    volume_segments: Optional[dict[str, list[Optional[float]]]] = Field(default_factory=dict)
+    capacity_utilisation_pct: Optional[list[Optional[float]]] = Field(default_factory=list)
+    countries_of_operation: Optional[list[Optional[float]]] = Field(default_factory=list)
+    plants_india: Optional[list[Optional[float]]] = Field(default_factory=list)
+    plants_overseas: Optional[list[Optional[float]]] = Field(default_factory=list)
+    revenue_mix_pct: Optional[dict[str, float]] = Field(default_factory=dict)
+    geography_mix_pct: Optional[dict[str, float]] = Field(default_factory=dict)
     realization_per_mt: Optional[float] = None
     employees: Optional[float] = None
 
@@ -1226,16 +1240,21 @@ STEP 8 — INVESTMENT THESIS with SAARTHI scoring (S+A1+A2+R+T+H+I = 100 max):
 
 STEP 9 — STRUCTURED ANALYTICAL DATA (web search aggressively for these — they power dedicated sheets):
 
-(a) operational — historical + forward operational metrics:
-- years: list of 8 year labels matching last 5 actual + first 3 projected (e.g. ["FY21A","FY22A","FY23A","FY24A","FY25A","FY26E","FY27E","FY28E"])
-- volume_segments: dict mapping segment_name → list of 8 yearly MT values
-  (e.g. {{"Lead Recycling":[88000,135000,...8 values]}}). Real numbers if available, else conservative estimates.
-- capacity_utilisation_pct: list of 8 (e.g. [62,72,78,75,80,84,87,90])
-- countries_of_operation, plants_india, plants_overseas: list of 8 integers
-- revenue_mix_pct: dict mapping segment → current % (sum ~= 1.0)
-- geography_mix_pct: dict mapping region → current %
-- realization_per_mt: ₹/tonne for primary product
-- employees: integer
+(a) operational — dynamic operational charts tailored to the company's sector and business model:
+- business_model_category: one of (manufacturing|services|bfsi|consumer|general) matching the company's core sector.
+- charts: list of 3 to 6 critical operational charts. Each chart has:
+  - title: clear chart title (e.g. "Loan Book Growth", "Active Client Accounts", "Capacity Utilisation %")
+  - chart_type: one of (bar|line|stacked_bar|donut)
+  - years: list of 8 labels for last 5 actual + first 3 projected years (e.g. ["FY21A","FY22A","FY23A","FY24A","FY25A","FY26E","FY27E","FY28E"])
+  - values: list of 8 numbers matching the years (use null for unavailable data). For donut/pie, values represent current share (0-100).
+  - ylabel: Y-axis label/unit (e.g. "₹ Cr", "Count", "Utilisation (%)", "MT")
+  - series_names: list of series names (only for stacked_bar; e.g. ["India", "Overseas"])
+  - stacked_values: dict mapping series_name -> list of 8 numbers matching the years (only for stacked_bar; e.g. {"India": [10, 12, ...]})
+- Guidance per sector:
+  - Manufacturing/Recycling: Capacity, Production Volume, Capacity Utilisation (%), Plant Counts.
+  - Services/SaaS: Headcount, Active Clients, Billable Utilisation %, Revenue/Employee.
+  - BFSI: Loan Book (AUM), Net Interest Margin %, GNPA/NNPA %, CASA Ratio %, Cost-to-Income.
+  - Retail/Consumer: Store Count, Same-Store Sales Growth %, Ticket Size, Rev/Sq Ft.
 
 (b) governance — REAL data from BSE/NSE filings or company AR:
 - board: list of {{name, designation, status (Promoter Executive|Independent|Nominee), din, since (year)}}
@@ -1245,8 +1264,10 @@ STEP 9 — STRUCTURED ANALYTICAL DATA (web search aggressively for these — the
   auditor_fees_non_audit_cr, related_party_transactions_cr (₹ Cr numbers)
 
 (c) timeline_events — minimum 10 milestones, chronological:
-- list of {{year (e.g. "1992" or "2024" or "2026E"), category (Founding|IPO|Expansion|New Vertical|Regulatory|Strategy|Milestone|Outlook), description, impact}}
+- list of {{year (e.g. "1992" or "2024" or "2026E"), category (Founding|IPO|Expansion|New Vertical|Regulatory|Strategy|Milestone|Outlook), description (max 25 words), impact (max 20 words)}}
 - Include: incorporation year, IPO year, major capex/expansion years, vision/guidance targets.
+- description: concise event summary only — NO long sentences, NO background context.
+- impact: short strategic consequence only (e.g. "Expanded addressable market", "Strengthened balance sheet").
 
 (d) risk_items — minimum 8 detailed risks (replaces simple key_risks):
 - list of {{category, factor (one-line summary, max 10 words), description (concise explanation, max 25 words), mitigation (concise explanation, max 25 words), probability (H|M|L), impact (H|M|L), rating (HIGH|MEDIUM|LOW)}}
@@ -1254,7 +1275,7 @@ STEP 9 — STRUCTURED ANALYTICAL DATA (web search aggressively for these — the
 
 (e) peers_detailed — 3-4 TRUE direct competitors (same business model & scale, NOT giant generic sector players):
 - list of {{name (NSE ticker style), revenue_series (last 5 actual years, ₹ Cr), ebitda_margin_series (fractions 0-1), pat_series (₹ Cr), mcap_cr, pe, pb, roce_pct, roe_pct}}
-- For a small-cap metal recycler pick comparable recyclers, NOT Hindustan Zinc/Vedanta.
+- Pick TRUE peers at similar scale/business model — NOT large diversified conglomerates or sector giants.
 
 (f) scenario_analysis — Bull/Base/Bear inputs (Python computes target_price and weighted_tp):
 - bull, base, bear each = {{label, eps_adjustment_pct, target_pe, probability_pct, rationale}}
@@ -1267,12 +1288,12 @@ STEP 9 — STRUCTURED ANALYTICAL DATA (web search aggressively for these — the
 - DO NOT provide target_price or weighted_tp — Python derives them: target_price = horizon_EPS × (1 + eps_adjustment_pct/100) × target_pe.
 
 (g) catalyst_timeline — forward-looking near-term catalysts (distinct from timeline_events which is company history):
-- list of {{year, category, description, impact}}, minimum 6 entries, ordered chronologically
+- list of {{year, category, description (max 25 words), impact (max 20 words)}}, minimum 6 entries, ordered chronologically
 - ONLY include events from current FY through last projection year (skip historical milestones — those go in timeline_events)
 - Mix of: regulatory approval dates, capex commissioning, vertical launches, capacity milestones, revenue/margin inflection targets
 - category: one of (Regulatory|Capacity|New Vertical|Margin Inflection|M&A|Milestone|Outlook)
-- description: specific & dated (e.g. "Lithium-ion plant at Mundra commissioning"). NOT generic ("growth continues").
-- impact: 1-line strategic-impact tag (e.g. "Unlocks EV battery recycling revenue stream").
+- description: specific & dated (e.g. "New plant commissioning at key location", "Regulatory approval received"). NOT generic ("growth continues"). Max 25 words.
+- impact: 1-line strategic-impact tag, max 20 words (e.g. "Unlocks new revenue stream", "Accelerates margin expansion").
 
 ━━ RULES ━━
 1. All monetary values in ₹ Crores. EPS/Target in ₹/share.
@@ -1356,11 +1377,18 @@ Return ONLY valid JSON. Start with {{ end with }}. No prose, no markdown fences.
   }},
   "catalyst_timeline":[{{"year":str,"category":str,"description":str,"impact":str}} ...min 6],
   "operational": {{
-    "years":[8 labels], "volume_segments":{{"segment_name":[8 floats]}},
-    "capacity_utilisation_pct":[8], "countries_of_operation":[8],
-    "plants_india":[8], "plants_overseas":[8],
-    "revenue_mix_pct":{{"segment":n}}, "geography_mix_pct":{{"region":n}},
-    "realization_per_mt":n, "employees":n
+    "business_model_category": "manufacturing|services|bfsi|consumer|general",
+    "charts": [
+      {{
+        "title": "Chart Title",
+        "chart_type": "bar|line|stacked_bar|donut",
+        "years": ["FY21A", "FY22A", "FY23A", "FY24A", "FY25A", "FY26E", "FY27E", "FY28E"],
+        "values": [number, ...],
+        "ylabel": "ylabel string",
+        "series_names": ["Series1", ...] (optional, only for stacked_bar),
+        "stacked_values": {{"Series1": [number, ...]}} (optional, only for stacked_bar)
+      }}
+    ]
   }},
   "governance": {{
     "board":[{{"name":str,"designation":str,"status":str,"din":str,"since":str}}],

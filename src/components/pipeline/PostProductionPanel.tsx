@@ -17,8 +17,8 @@ import {
   generatePptx,
   syncSlidesToPdf,
   PPT_SERVICE_URL,
-  updateCustomSection,
   updatePodcastScript,
+  updateVideoScript,
 } from '@/lib/api';
 import { runPptCopywriting } from '@/lib/anthropic-pipeline';
 import { savePptContent, getPptContent } from '@/lib/pipeline-api';
@@ -109,6 +109,11 @@ export default function PostProductionPanel({
   const [videoGenerating, setVideoGenerating] = useState(false);
   const [videoFileUrl, setVideoFileUrl] = useState<string | null>(null);
   const [videoElapsedSeconds, setVideoElapsedSeconds] = useState(0);
+  const [videoScript, setVideoScript] = useState<string | null>(null);
+  const [lastSavedVideoScript, setLastSavedVideoScript] = useState<string | null>(null);
+  const [videoScriptSaving, setVideoScriptSaving] = useState(false);
+  const [videoScriptExpanded, setVideoScriptExpanded] = useState(false);
+  const [videoScriptGenerating, setVideoScriptGenerating] = useState(false);
 
   // --- PPT Data ---
   const [pptDataConfirmed, setPptDataConfirmed] = useState(false);
@@ -208,6 +213,13 @@ export default function PostProductionPanel({
     } else {
       setPodcastScript(null);
       setLastSavedScript(null);
+    }
+    if (report.video_script) {
+      setVideoScript(report.video_script);
+      setLastSavedVideoScript(report.video_script);
+    } else {
+      setVideoScript(null);
+      setLastSavedVideoScript(null);
     }
     if (report.audio_file_url) setAudioFileUrl(report.audio_file_url);
     if (report.video_file_url) setVideoFileUrl(report.video_file_url);
@@ -534,6 +546,62 @@ export default function PostProductionPanel({
   // ========================
   // Step 3: Video
   // ========================
+
+  const handleGenerateVideoScript = useCallback(async () => {
+    if (!reportId) return;
+    setVideoScriptGenerating(true);
+    try {
+      const response = await fetch(`${N8N_BASE}/generate-video-script`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ report_id: reportId }),
+      });
+      if (!response.ok) throw new Error('Video script generation failed');
+      toast.info('Video script generation started — may take 1-2 minutes...');
+      const script = await pollSupabaseColumn('video_script');
+      if (script) {
+        setVideoScript(script);
+        setLastSavedVideoScript(script);
+        toast.success('Video script generated!');
+      } else {
+        toast.error('Video script generation timed out. Try refreshing.');
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to generate video script');
+    } finally {
+      setVideoScriptGenerating(false);
+    }
+  }, [reportId, pollSupabaseColumn]);
+
+  const handleSaveVideoScript = useCallback(async (newScript: string, showToast = false) => {
+    if (!reportId) return;
+    setVideoScriptSaving(true);
+    try {
+      await updateVideoScript(reportId, newScript);
+      setLastSavedVideoScript(newScript);
+      if (showToast) toast.success('Video script saved & confirmed!');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save video script');
+    } finally {
+      setVideoScriptSaving(false);
+    }
+  }, [reportId]);
+
+  const handleResetVideoScript = useCallback(async () => {
+    if (!reportId) return;
+    if (!window.confirm("Delete this video script? You'll need to generate a new one.")) return;
+    setVideoScriptSaving(true);
+    try {
+      await updateVideoScript(reportId, '');
+      setVideoScript(null);
+      setLastSavedVideoScript(null);
+      toast.success('Video script deleted.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete video script');
+    } finally {
+      setVideoScriptSaving(false);
+    }
+  }, [reportId]);
 
   const handleGenerateVideo = useCallback(async () => {
     if (!reportId) return;
@@ -1131,7 +1199,7 @@ export default function PostProductionPanel({
                             toast.info('Discarded unsaved changes.');
                           }}
                           disabled={scriptSaving}
-                          size="xs"
+                          size="sm"
                           variant="outline"
                           className="rounded-md px-2.5 py-1 text-[11px] h-7 text-neutral-500 bg-neutral-50 border-neutral-200 hover:bg-neutral-100"
                         >
@@ -1141,7 +1209,7 @@ export default function PostProductionPanel({
                       <Button
                         onClick={() => handleSaveScript(podcastScript || '', true)}
                         disabled={scriptSaving || podcastScript === lastSavedScript}
-                        size="xs"
+                        size="sm"
                         variant={podcastScript !== lastSavedScript ? 'default' : 'outline'}
                         className={cn(
                           'rounded-md px-2.5 py-1 text-[11px] h-7',
@@ -1208,7 +1276,7 @@ export default function PostProductionPanel({
                         <Button
                           onClick={handleGenerateAudio}
                           disabled={audioGenerating || isAnyGenerating}
-                          size="xs"
+                          size="sm"
                           variant="outline"
                           className="mt-1 h-6 text-[10px] bg-white text-amber-800 border-amber-300 hover:bg-amber-100 hover:text-amber-900 rounded"
                         >
@@ -1232,46 +1300,144 @@ export default function PostProductionPanel({
           active={!!reportId && !videoFileUrl}
           disabled={!reportId}
         >
-          {!videoFileUrl ? (
-            <Button
-              onClick={handleGenerateVideo}
-              disabled={!reportId || videoGenerating || isAnyGenerating}
-              size="sm"
-              className="rounded-lg bg-accent-600 hover:bg-accent-700"
-            >
-              {videoGenerating ? (
-                <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Generating ({formatTime(videoElapsedSeconds)})...</>
-              ) : (
-                <><Video className="h-3.5 w-3.5 mr-1.5" /> Generate Video</>
-              )}
-            </Button>
-          ) : (
-            <div className="space-y-3">
-              <video controls src={videoFileUrl} className="w-full max-h-48 rounded-lg bg-black" />
-              <div className="flex flex-wrap items-center gap-3">
-                <a
-                  href={videoFileUrl}
-                  download
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 hover:bg-neutral-50 text-neutral-700 text-xs font-medium h-8 px-3"
-                >
-                  <Download className="h-3.5 w-3.5" /> Download MP4
-                </a>
-                <Button
-                  onClick={handleGenerateVideo}
-                  disabled={videoGenerating || isAnyGenerating}
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 text-xs text-neutral-500 hover:text-neutral-800"
-                >
-                  {videoGenerating ? (
-                    <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Regenerating ({formatTime(videoElapsedSeconds)})</>
-                  ) : (
-                    <><RefreshCw className="h-3 w-3 mr-1.5" /> Regenerate Video</>
+          <div className="space-y-3">
+            {/* Video Script Section */}
+            {!videoScript ? (
+              <Button
+                onClick={handleGenerateVideoScript}
+                disabled={!reportId || videoScriptGenerating || isAnyGenerating}
+                size="sm"
+                variant="outline"
+                className="rounded-lg"
+              >
+                {videoScriptGenerating ? (
+                  <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Generating Script...</>
+                ) : (
+                  <><FileText className="h-3.5 w-3.5 mr-1.5" /> Generate Video Script</>
+                )}
+              </Button>
+            ) : (
+              <>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    {videoScript !== lastSavedVideoScript ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200 animate-pulse">
+                        <AlertCircle className="h-3 w-3" /> Unconfirmed Edits
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-green-50 text-green-700 border border-green-200">
+                        <CheckCircle className="h-3 w-3" /> Script Confirmed
+                      </span>
+                    )}
+                    <button
+                      onClick={() => setVideoScriptExpanded(!videoScriptExpanded)}
+                      className="text-xs text-neutral-400 hover:text-neutral-600 flex items-center gap-1 ml-1"
+                    >
+                      {videoScriptExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                      {videoScriptExpanded ? 'Hide Script' : 'Edit/View Script'}
+                    </button>
+                  </div>
+                  {videoScript && !videoScriptSaving && (
+                    <button
+                      onClick={handleResetVideoScript}
+                      disabled={videoScriptGenerating || videoGenerating}
+                      className="text-xs text-red-500 hover:text-red-700 hover:underline flex items-center gap-1 ml-2 disabled:opacity-50"
+                    >
+                      Delete Script
+                    </button>
                   )}
-                </Button>
+                </div>
+
+                {videoScriptExpanded && (
+                  <div className="space-y-2">
+                    <textarea
+                      value={videoScript || ''}
+                      onChange={(e) => setVideoScript(e.target.value)}
+                      className="w-full rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-xs text-neutral-800 font-mono leading-relaxed resize-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 focus-visible:border-accent-400"
+                      style={{ minHeight: '120px', maxHeight: '300px' }}
+                      spellCheck={false}
+                      placeholder="Video script content..."
+                    />
+                    <div className="flex justify-end gap-2">
+                      {videoScript !== lastSavedVideoScript && (
+                        <Button
+                          onClick={() => { setVideoScript(lastSavedVideoScript); toast.info('Discarded unsaved changes.'); }}
+                          disabled={videoScriptSaving}
+                          size="sm"
+                          variant="outline"
+                          className="rounded-md px-2.5 py-1 text-[11px] h-7 text-neutral-500 bg-neutral-50 border-neutral-200 hover:bg-neutral-100"
+                        >
+                          Discard Edits
+                        </Button>
+                      )}
+                      <Button
+                        onClick={() => handleSaveVideoScript(videoScript || '', true)}
+                        disabled={videoScriptSaving || videoScript === lastSavedVideoScript}
+                        size="sm"
+                        variant={videoScript !== lastSavedVideoScript ? 'default' : 'outline'}
+                        className={cn(
+                          'rounded-md px-2.5 py-1 text-[11px] h-7',
+                          videoScript !== lastSavedVideoScript
+                            ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm border-0'
+                            : 'text-neutral-500 bg-neutral-50 border-neutral-200'
+                        )}
+                      >
+                        {videoScriptSaving ? (
+                          <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Saving...</>
+                        ) : videoScript !== lastSavedVideoScript ? (
+                          <><Check className="h-3 w-3 mr-1" /> Confirm & Update Script</>
+                        ) : (
+                          <><Check className="h-3 w-3 mr-1 text-green-600" /> Saved & Confirmed</>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Generate Video Button */}
+            {!videoFileUrl ? (
+              <Button
+                onClick={handleGenerateVideo}
+                disabled={!reportId || videoGenerating || isAnyGenerating}
+                size="sm"
+                className="rounded-lg bg-accent-600 hover:bg-accent-700"
+              >
+                {videoGenerating ? (
+                  <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Generating ({formatTime(videoElapsedSeconds)})...</>
+                ) : (
+                  <><Video className="h-3.5 w-3.5 mr-1.5" /> Generate Video</>
+                )}
+              </Button>
+            ) : (
+              <div className="space-y-3">
+                <video controls src={videoFileUrl} className="w-full max-h-48 rounded-lg bg-black" />
+                <div className="flex flex-wrap items-center gap-3">
+                  <a
+                    href={videoFileUrl}
+                    download
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 hover:bg-neutral-50 text-neutral-700 text-xs font-medium h-8 px-3"
+                  >
+                    <Download className="h-3.5 w-3.5" /> Download MP4
+                  </a>
+                  <Button
+                    onClick={handleGenerateVideo}
+                    disabled={videoGenerating || isAnyGenerating}
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-xs text-neutral-500 hover:text-neutral-800"
+                  >
+                    {videoGenerating ? (
+                      <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Regenerating ({formatTime(videoElapsedSeconds)})</>
+                    ) : (
+                      <><RefreshCw className="h-3 w-3 mr-1.5" /> Regenerate Video</>
+                    )}
+                  </Button>
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </StepRow>
       </div>
 

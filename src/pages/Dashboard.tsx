@@ -93,7 +93,7 @@ export default function Dashboard() {
               {[
                 { to: '/admin/equity-database', icon: Building2, label: 'Equity Database' },
                 { to: '/admin/universe', icon: Globe, label: 'Equity Universe' },
-                { to: '/admin/generate-research', icon: Sparkles, label: 'Generate Research' },
+                { to: '/admin/pipeline', icon: Sparkles, label: 'Generate Research' },
                 { to: '/admin/research-reports', icon: FileText, label: 'Reports' },
               ].map((action, i) => (
                 <Link
@@ -137,7 +137,7 @@ export default function Dashboard() {
               <div className="rounded-xl border border-dashed border-neutral-200 bg-white py-12 text-center">
                 <p className="text-sm text-neutral-500">No research sessions yet</p>
                 <Link
-                  to="/admin/generate-research"
+                  to="/admin/pipeline"
                   className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-accent-600 hover:text-accent-700"
                 >
                   Create your first report

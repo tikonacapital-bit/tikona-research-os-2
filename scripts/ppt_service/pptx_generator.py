@@ -318,6 +318,22 @@ def _sentences(text: str, *, limit: int = 4, max_len: int = 260) -> list[str]:
     return out
 
 
+def _format_two_paragraphs(text_content: str) -> str:
+    if not text_content:
+        return "Financial forecast data shows stable projections.\n\nAnalysts remain constructive on the medium-term outlook."
+    sents = _sentences(text_content, limit=4, max_len=220)
+    if len(sents) == 0:
+        return "Financial forecast data shows stable projections.\n\nAnalysts remain constructive on the medium-term outlook."
+    elif len(sents) == 1:
+        return sents[0]
+    elif len(sents) == 2:
+        return sents[0] + "\n\n" + sents[1]
+    elif len(sents) == 3:
+        return sents[0] + " " + sents[1] + "\n\n" + sents[2]
+    else:
+        return sents[0] + " " + sents[1] + "\n\n" + sents[2] + " " + sents[3]
+
+
 def _metric_chips(metadata: dict, fin_model: dict, company: dict) -> list[str]:
     operational = fin_model.get("operational") or {}
     chips: list[str] = []
@@ -1433,7 +1449,7 @@ def map_replacements(company, metadata, fin_model, sections):
         latest_idx = _last_actual_index([str(y).strip() for y in (op.get("years") or [])])
         if latest_idx is not None:
             for vals in volumes.values():
-                seq = [float(v) for v in (vals or [])]
+                seq = [float(v) if v is not None else 0.0 for v in (vals or [])]
                 if latest_idx < len(seq):
                     latest_total_volume += seq[latest_idx]
     if countries and countries[-1] is not None:
@@ -1528,9 +1544,9 @@ def map_replacements(company, metadata, fin_model, sections):
         "tar":      fmt_number(metadata.get("target_price", "")),  # Slide 5 uses {{tar}}
         "buy":      fmt_number(metadata.get("cmp", "")),
         "up":       upside_disp,
-        "industry_structure": _clean_prose(industry, max_len=900),
-        "key_industry":       _clean_prose(industry_tailwinds_text, max_len=900),
-        "key_industry_risk":  _clean_prose(industry_risks_text, max_len=900),
+        "industry_structure": "\n".join(_bullets_from_text(industry, limit=5, max_len=145)),
+        "key_industry":       "\n".join(_bullets_from_text(industry_tailwinds_text, limit=5, max_len=145)),
+        "key_industry_risk":  "\n".join(_bullets_from_text(industry_risks_text, limit=5, max_len=145)),
         # ── Slide 6: Company Overview ─────────────────────────────────────────
         "COMPANY_OVERVIEW": company_overview_text,
         "__slide6_top_overview": top_overview,
@@ -1584,17 +1600,15 @@ def map_replacements(company, metadata, fin_model, sections):
         "para_5": metric_chips[4] if len(metric_chips) > 4 else "",
         "para_6": metric_chips[5] if len(metric_chips) > 5 else "",
         # ── Slide 14: Financial Commentary ────────────────────────────────────
-        "financial_commentry": _clean_prose(
+        "financial_commentry": _format_two_paragraphs(
             _section_by_any(sections, ["financial", "earnings", "revenue", "profit"]) or
-            _all_sections_text(sections),
-            max_len=600,
+            _all_sections_text(sections)
         ),
         # ── Slide 15: Valuations Commentary ──────────────────────────────────
-        "commentry": _clean_prose(
+        "commentry": _format_two_paragraphs(
             _section_by_any(sections, ["valuation", "dcf", "pe_ratio", "fair_value"]) or
             _section_by_any(sections, ["investment", "thesis"]) or
-            _all_sections_text(sections),
-            max_len=600,
+            _all_sections_text(sections)
         ),
     }
 
@@ -1682,10 +1696,9 @@ def map_replacements(company, metadata, fin_model, sections):
         "indicators_4": governance_cards[3],
         "indicators_5": governance_cards[4],
         "indicators_6": governance_cards[5],
-        "forecast_assumptions": _clean_prose(
+        "forecast_assumptions": _format_two_paragraphs(
             _section_by_any(sections, ["forecast", "assumption", "growth", "capex", "working capital"]) or
-            business_model_text or thesis_panel_text,
-            max_len=900,
+            business_model_text or thesis_panel_text
         ),
         "financial_commentary": replacements["financial_commentry"],
         "valuation_commentary": replacements["commentry"],
@@ -1696,7 +1709,7 @@ def map_replacements(company, metadata, fin_model, sections):
                 saarthi,
             ).items()
         },
-        "saarthi_summary_s16": _clean_prose(saarthi_assessment, max_len=520),
+        "saarthi_summary_s16": _truncate_words(saarthi_assessment, 65, max_len=450),
     })
 
     # ── SAARTHI per-dimension scores (Slide 16: {{s_s}}, {{a1_s}}, ...) ──────
@@ -2334,7 +2347,7 @@ def _build_slide6_pie_data(fin_model: dict) -> tuple[dict[str, float], dict[str,
         total = 0.0
         raw_points: dict[str, float] = {}
         for raw_name, series in volume_segments.items():
-            vals = [float(v) for v in (series or [])]
+            vals = [float(v) if v is not None else 0.0 for v in (series or [])]
             if latest_actual_idx >= len(vals):
                 continue
             name = str(raw_name).replace(" Recycling", "").strip()
@@ -2463,7 +2476,9 @@ def _read_timeline_rows(
         impact = ws.cell(r, 4).value
         if not year or not category or not description:
             continue
-        rows.append((str(year), str(category), str(description), str(impact or "")))
+        desc_text = _truncate_words(str(description), 30)
+        impact_text = _truncate_words(str(impact or ""), 25)
+        rows.append((str(year), str(category), desc_text, impact_text))
     return rows
 
 
@@ -2620,7 +2635,17 @@ def _render_timeline_table(
         bbox=[0, 0, 1, 1],
     )
     table.auto_set_font_size(False)
-    table.set_fontsize(8.3)
+    # Dynamic font scaling: shrink if many rows/lines crowd the table
+    total_lines = sum(line_counts)
+    if total_lines <= 30:
+        font_sz = 8.3
+    elif total_lines <= 40:
+        font_sz = 7.5
+    elif total_lines <= 50:
+        font_sz = 7.0
+    else:
+        font_sz = 6.5
+    table.set_fontsize(font_sz)
     _apply_row_line_heights(table, line_counts)
 
     for (r, c), cell in table.get_celld().items():
@@ -4139,7 +4164,7 @@ def _last_five_actual_periods(periods: list[str], values: list[float]) -> tuple[
 
 def _last_five_actual_operational(op: dict, key: str) -> tuple[list[str], list[float]]:
     years = [str(y).strip() for y in (op.get("years") or [])]
-    values = [float(v) for v in (op.get(key) or [])]
+    values = [float(v) if v is not None else 0.0 for v in (op.get(key) or [])]
     return _last_five_actual_periods(years, values)
 
 
@@ -4150,7 +4175,7 @@ def _last_five_actual_segment_series(op: dict) -> tuple[list[str], dict[str, lis
     segments = op.get("volume_segments") or {}
     out: dict[str, list[float]] = {}
     for name, raw_vals in segments.items():
-        vals = [float(v) for v in (raw_vals or [])]
+        vals = [float(v) if v is not None else 0.0 for v in (raw_vals or [])]
         out[name] = [vals[idx] for idx in actual_idx if idx < len(vals)]
     return actual_years, out
 
@@ -4244,177 +4269,263 @@ def _render_story_chart_collage(
                 frameon=False,
             )
 
-        # ── 1. Capacity (MTPA / kT) ───────────────────────────────────────
-        cap_years, cap_vals = _last_five_actual_operational(op, "capacity_mtpa")
-        if not cap_years:
-            cap_years, cap_vals = _last_five_actual_operational(op, "capacity_kt")
-        if not cap_years:
-            seg_years_all, vol_segs_all = _last_five_actual_segment_series(op)
-            if seg_years_all and vol_segs_all:
-                totals = [0.0] * len(seg_years_all)
-                for vals in vol_segs_all.values():
+        charts_spec = op.get("charts")
+        if not charts_spec:
+            # ── 1. Capacity (MTPA / kT) ───────────────────────────────────────
+            cap_years, cap_vals = _last_five_actual_operational(op, "capacity_mtpa")
+            if not cap_years:
+                cap_years, cap_vals = _last_five_actual_operational(op, "capacity_kt")
+            if not cap_years:
+                seg_years_all, vol_segs_all = _last_five_actual_segment_series(op)
+                if seg_years_all and vol_segs_all:
+                    totals = [0.0] * len(seg_years_all)
+                    for vals in vol_segs_all.values():
+                        for i, v in enumerate(vals[:len(totals)]):
+                            totals[i] += v
+                    cap_years, cap_vals = seg_years_all, [t / 1000.0 for t in totals]
+
+            if cap_years and cap_vals:
+                axes[0, 0].bar(cap_years, cap_vals, color="#1F4690")
+                _style_axes(axes[0, 0], "Capacity (kT)", ylabel="kT")
+                _pad_top(axes[0, 0], cap_vals)
+            else:
+                _empty(axes[0, 0], "Capacity")
+
+            # ── 2. Volume Sold (MT) — total across segments ────────────────────
+            seg_years, volume_segments = _last_five_actual_segment_series(op)
+            if seg_years and volume_segments:
+                totals = [0.0] * len(seg_years)
+                for vals in volume_segments.values():
                     for i, v in enumerate(vals[:len(totals)]):
                         totals[i] += v
-                cap_years, cap_vals = seg_years_all, [t / 1000.0 for t in totals]
-
-        if cap_years and cap_vals:
-            axes[0, 0].bar(cap_years, cap_vals, color="#1F4690")
-            _style_axes(axes[0, 0], "Capacity (kT)", ylabel="kT")
-            _pad_top(axes[0, 0], cap_vals)
-        else:
-            _empty(axes[0, 0], "Capacity")
-
-        # ── 2. Volume Sold (MT) — total across segments ────────────────────
-        seg_years, volume_segments = _last_five_actual_segment_series(op)
-        if seg_years and volume_segments:
-            totals = [0.0] * len(seg_years)
-            for vals in volume_segments.values():
-                for i, v in enumerate(vals[:len(totals)]):
-                    totals[i] += v
-            axes[0, 1].bar(seg_years, totals, color="#FFA500")
-            _style_axes(axes[0, 1], "Volume Sold (MT)", ylabel="MT")
-            _pad_top(axes[0, 1], totals)
-        else:
-            _empty(axes[0, 1], "Volume Sold")
-
-        # ── 3. Volume by Category ──────────────────────────────────────────
-        # Determine dynamic category (e.g. Metal, Product, Segment)
-        explicit_category = op.get("volume_category_name") or op.get("volume_dimension") or op.get("volume_by_label")
-        if explicit_category and isinstance(explicit_category, str) and explicit_category.strip():
-            vol_category = explicit_category.strip()
-        else:
-            # Detect based on keys
-            detect_keys = list(volume_segments.keys()) if volume_segments else []
-            if not detect_keys:
-                metal_mix_temp = op.get("volume_by_metal") or op.get("metal_volume_pct") or {}
-                if isinstance(metal_mix_temp, dict):
-                    detect_keys = list(metal_mix_temp.keys())
-            
-            metals = {"lead", "zinc", "copper", "aluminum", "aluminium", "nickel", "iron", "steel", "gold", "silver", "cobalt", "brass", "bronze", "tin", "metal", "alloy", "scrap", "wire", "cable"}
-            products = {"polymer", "chemical", "plastic", "paper", "oil", "gas", "coal", "fuel", "material", "product", "battery", "batteries", "grid", "packaging"}
-            
-            keys_lower = [str(k).lower() for k in detect_keys]
-            metal_count = sum(1 for k in keys_lower if any(m in k for m in metals))
-            product_count = sum(1 for k in keys_lower if any(p in k for p in products))
-            
-            if metal_count > 0 and metal_count >= product_count:
-                vol_category = "Metal"
-            elif product_count > 0:
-                vol_category = "Product"
+                axes[0, 1].bar(seg_years, totals, color="#FFA500")
+                _style_axes(axes[0, 1], "Volume Sold (MT)", ylabel="MT")
+                _pad_top(axes[0, 1], totals)
             else:
-                vol_category = "Segment"
+                _empty(axes[0, 1], "Volume Sold")
 
-        # Read volume unit dynamically from model data, defaulting to MT
-        vol_unit = op.get("volume_unit") or op.get("volume_units") or op.get("unit") or "MT"
+            # ── 3. Volume by Category ──────────────────────────────────────────
+            # Determine dynamic category (e.g. Metal, Product, Segment)
+            explicit_category = op.get("volume_category_name") or op.get("volume_dimension") or op.get("volume_by_label")
+            if explicit_category and isinstance(explicit_category, str) and explicit_category.strip():
+                vol_category = explicit_category.strip()
+            else:
+                # Detect based on keys
+                detect_keys = list(volume_segments.keys()) if volume_segments else []
+                if not detect_keys:
+                    metal_mix_temp = op.get("volume_by_metal") or op.get("metal_volume_pct") or {}
+                    if isinstance(metal_mix_temp, dict):
+                        detect_keys = list(metal_mix_temp.keys())
+                
+                metals = {"lead", "zinc", "copper", "aluminum", "aluminium", "nickel", "iron", "steel", "gold", "silver", "cobalt", "brass", "bronze", "tin", "metal", "alloy", "scrap", "wire", "cable"}
+                products = {"polymer", "chemical", "plastic", "paper", "oil", "gas", "coal", "fuel", "material", "product", "battery", "batteries", "grid", "packaging"}
+                
+                keys_lower = [str(k).lower() for k in detect_keys]
+                metal_count = sum(1 for k in keys_lower if any(m in k for m in metals))
+                product_count = sum(1 for k in keys_lower if any(p in k for p in products))
+                
+                if metal_count > 0 and metal_count >= product_count:
+                    vol_category = "Metal"
+                elif product_count > 0:
+                    vol_category = "Product"
+                else:
+                    vol_category = "Segment"
 
-        # Prefer the time-series segments shape (volume_segments dict over years).
-        # Fall back to a single-year metal_volume_pct dict if that's all we have.
-        if seg_years and volume_segments:
-            bottoms = [0.0] * len(seg_years)
-            for idx, (name, vals) in enumerate(volume_segments.items()):
-                axes[0, 2].bar(seg_years, vals[:len(seg_years)], bottom=bottoms,
-                               color=_PALETTE[idx % len(_PALETTE)], label=name)
-                bottoms = [b + v for b, v in zip(bottoms, vals[:len(bottoms)])]
-            _style_axes(axes[0, 2], f"{vol_category} Volume ({vol_unit})", ylabel=vol_unit)
-            _pad_top(axes[0, 2], bottoms)
-            axes[0, 2].legend(fontsize=7, frameon=False, loc="upper left")
-        else:
-            # Single-year dict fallback — render as donut.
-            metal_mix = op.get("volume_by_metal") or op.get("metal_volume_pct") or {}
-            if isinstance(metal_mix, dict) and metal_mix:
-                labels_v = list(metal_mix.keys())
-                sizes_v = []
-                for v in metal_mix.values():
-                    try:
-                        fv = float(v)
-                    except (TypeError, ValueError):
-                        fv = 0.0
-                    if fv <= 1.0:
-                        fv *= 100.0
-                    sizes_v.append(fv)
+            # Read volume unit dynamically from model data, defaulting to MT
+            vol_unit = op.get("volume_unit") or op.get("volume_units") or op.get("unit") or "MT"
 
-                if sum(sizes_v) > 0:
-                    _render_pie(axes[0, 2], labels_v, sizes_v, f"{vol_category} Volume Mix")
+            if seg_years and volume_segments:
+                bottoms = [0.0] * len(seg_years)
+                for idx, (name, vals) in enumerate(volume_segments.items()):
+                    axes[0, 2].bar(seg_years, vals[:len(seg_years)], bottom=bottoms,
+                                   color=_PALETTE[idx % len(_PALETTE)], label=name)
+                    bottoms = [b + v for b, v in zip(bottoms, vals[:len(bottoms)])]
+                _style_axes(axes[0, 2], f"{vol_category} Volume ({vol_unit})", ylabel=vol_unit)
+                _pad_top(axes[0, 2], bottoms)
+                axes[0, 2].legend(fontsize=7, frameon=False, loc="upper left")
+            else:
+                # Single-year dict fallback — render as donut.
+                metal_mix = op.get("volume_by_metal") or op.get("metal_volume_pct") or {}
+                if isinstance(metal_mix, dict) and metal_mix:
+                    labels_v = list(metal_mix.keys())
+                    sizes_v = []
+                    for v in metal_mix.values():
+                        try:
+                            fv = float(v)
+                        except (TypeError, ValueError):
+                            fv = 0.0
+                        if fv <= 1.0:
+                            fv *= 100.0
+                        sizes_v.append(fv)
+
+                    if sum(sizes_v) > 0:
+                        _render_pie(axes[0, 2], labels_v, sizes_v, f"{vol_category} Volume Mix")
+                    else:
+                        _empty(axes[0, 2], f"{vol_category} Volume")
                 else:
                     _empty(axes[0, 2], f"{vol_category} Volume")
-            else:
-                _empty(axes[0, 2], f"{vol_category} Volume")
 
-        # ── 4. Geographic Revenue Mix (India vs International) ─────────────
-        # Prefer time-series if available, else donut of geography_mix_pct.
-        geo_series = op.get("revenue_by_geography") or op.get("geographic_mix_series") or {}
-        rendered_geo = False
-        if isinstance(geo_series, dict) and geo_series and all(isinstance(v, list) for v in geo_series.values()):
-            geo_year_axis = [str(y).strip() for y in (op.get("years") or [])]
-            actual_idx = [i for i, y in enumerate(geo_year_axis) if "E" not in y.upper()][-5:]
-            geo_year_axis = [geo_year_axis[i] for i in actual_idx]
-            if geo_year_axis:
-                bottoms = [0.0] * len(geo_year_axis)
-                for idx, (name, vals) in enumerate(list(geo_series.items())[:5]):
-                    aligned = [float(vals[i]) if i < len(vals) and vals[i] is not None else 0.0 for i in actual_idx]
-                    axes[1, 0].bar(geo_year_axis, aligned, bottom=bottoms,
-                                   color=_PALETTE[idx % len(_PALETTE)], label=name)
-                    bottoms = [b + a for b, a in zip(bottoms, aligned)]
-                _style_axes(axes[1, 0], "India vs International", ylabel="%")
-                _pad_top(axes[1, 0], bottoms)
-                axes[1, 0].legend(fontsize=7, frameon=False, loc="upper left")
-                rendered_geo = True
-        if not rendered_geo:
-            geo_mix = op.get("geography_mix_pct") or op.get("geographic_mix") or {}
-            if isinstance(geo_mix, dict) and geo_mix:
-                # Collapse to India vs International when fine-grained regions are present.
-                india_share = 0.0
-                intl_share = 0.0
-                for k, v in geo_mix.items():
-                    try:
-                        fv = float(v)
-                    except (TypeError, ValueError):
-                        continue
-                    if fv <= 1.0:
-                        fv *= 100.0
-                    if "india" in str(k).lower():
-                        india_share += fv
+            # ── 4. Geographic Revenue Mix (India vs International) ─────────────
+            geo_series = op.get("revenue_by_geography") or op.get("geographic_mix_series") or {}
+            rendered_geo = False
+            if isinstance(geo_series, dict) and geo_series and all(isinstance(v, list) for v in geo_series.values()):
+                geo_year_axis = [str(y).strip() for y in (op.get("years") or [])]
+                actual_idx = [i for i, y in enumerate(geo_year_axis) if "E" not in y.upper()][-5:]
+                geo_year_axis = [geo_year_axis[i] for i in actual_idx]
+                if geo_year_axis:
+                    bottoms = [0.0] * len(geo_year_axis)
+                    for idx, (name, vals) in enumerate(list(geo_series.items())[:5]):
+                        aligned = [float(vals[i]) if i < len(vals) and vals[i] is not None else 0.0 for i in actual_idx]
+                        axes[1, 0].bar(geo_year_axis, aligned, bottom=bottoms,
+                                       color=_PALETTE[idx % len(_PALETTE)], label=name)
+                        bottoms = [b + a for b, a in zip(bottoms, aligned)]
+                    _style_axes(axes[1, 0], "India vs International", ylabel="%")
+                    _pad_top(axes[1, 0], bottoms)
+                    axes[1, 0].legend(fontsize=7, frameon=False, loc="upper left")
+                    rendered_geo = True
+            if not rendered_geo:
+                geo_mix = op.get("geography_mix_pct") or op.get("geographic_mix") or {}
+                if isinstance(geo_mix, dict) and geo_mix:
+                    india_share = 0.0
+                    intl_share = 0.0
+                    for k, v in geo_mix.items():
+                        try:
+                            fv = float(v)
+                        except (TypeError, ValueError):
+                            continue
+                        if fv <= 1.0:
+                            fv *= 100.0
+                        if "india" in str(k).lower():
+                            india_share += fv
+                        else:
+                            intl_share += fv
+                    if india_share + intl_share > 0:
+                        _render_pie(axes[1, 0], ["India", "International"], [india_share, intl_share],
+                                    "India vs International")
                     else:
-                        intl_share += fv
-                if india_share + intl_share > 0:
-                    _render_pie(axes[1, 0], ["India", "International"], [india_share, intl_share],
-                                "India vs International")
+                        _empty(axes[1, 0], "India vs International")
                 else:
                     _empty(axes[1, 0], "India vs International")
+
+            # ── 5. Plants (India vs Overseas — grouped bars) ───────────────────
+            plant_years, india = _last_five_actual_operational(op, "plants_india")
+            _, overseas = _last_five_actual_operational(op, "plants_overseas")
+            if plant_years and (india or overseas):
+                import numpy as _np
+                india = india or [0.0] * len(plant_years)
+                overseas = overseas or [0.0] * len(plant_years)
+                x = _np.arange(len(plant_years))
+                w = 0.38
+                axes[1, 1].bar(x - w / 2, india,    width=w, color="#1F4690", label="India")
+                axes[1, 1].bar(x + w / 2, overseas, width=w, color="#FFA500", label="Overseas")
+                axes[1, 1].set_xticks(x)
+                axes[1, 1].set_xticklabels(plant_years)
+                _style_axes(axes[1, 1], "Plants", ylabel="Count")
+                _pad_top(axes[1, 1], [max(a or 0, b or 0) for a, b in zip(india, overseas)])
+                axes[1, 1].legend(fontsize=7, frameon=False, loc="upper left")
             else:
-                _empty(axes[1, 0], "India vs International")
+                _empty(axes[1, 1], "Plants")
 
-        # ── 5. Plants (India vs Overseas — grouped bars) ───────────────────
-        plant_years, india = _last_five_actual_operational(op, "plants_india")
-        _, overseas = _last_five_actual_operational(op, "plants_overseas")
-        if plant_years and (india or overseas):
-            import numpy as _np
-            india = india or [0.0] * len(plant_years)
-            overseas = overseas or [0.0] * len(plant_years)
-            x = _np.arange(len(plant_years))
-            w = 0.38
-            axes[1, 1].bar(x - w / 2, india,    width=w, color="#1F4690", label="India")
-            axes[1, 1].bar(x + w / 2, overseas, width=w, color="#FFA500", label="Overseas")
-            axes[1, 1].set_xticks(x)
-            axes[1, 1].set_xticklabels(plant_years)
-            _style_axes(axes[1, 1], "Plants", ylabel="Count")
-            _pad_top(axes[1, 1], [max(a or 0, b or 0) for a, b in zip(india, overseas)])
-            axes[1, 1].legend(fontsize=7, frameon=False, loc="upper left")
+            # ── 6. Capacity Utilization % ──────────────────────────────────────
+            util_years, util_vals = _last_five_actual_operational(op, "capacity_utilisation_pct")
+            if not util_years:
+                util_years, util_vals = _last_five_actual_operational(op, "capacity_utilization_pct")
+            if not util_years:
+                util_years, util_vals = _last_five_actual_operational(op, "utilization_pct")
+            if util_years and util_vals:
+                axes[1, 2].plot(util_years, util_vals, color="#1F4690", linewidth=2.5, marker="o")
+                _style_axes(axes[1, 2], "Capacity Utilization (%)", ylabel="%")
+                _pad_top(axes[1, 2], util_vals)
+            else:
+                _empty(axes[1, 2], "Capacity Utilization")
         else:
-            _empty(axes[1, 1], "Plants")
+            # ──── DYNAMIC METADATA-DRIVEN RENDERER ────
+            # Clear default subplots figure since we will construct a custom grid shape
+            plt.close(fig)
+            
+            n_charts = len(charts_spec)
+            if n_charts <= 0:
+                fig, axes = plt.subplots(1, 1, figsize=(15.0, 6.6), facecolor="white")
+                axes_list = [axes]
+            elif n_charts <= 3:
+                fig, axes = plt.subplots(1, n_charts, figsize=(15.0, 6.6), facecolor="white")
+                axes_list = list(axes) if n_charts > 1 else [axes]
+            else:
+                rows = 2
+                cols = (n_charts + 1) // 2
+                fig, axes = plt.subplots(rows, cols, figsize=(15.0, 6.6), facecolor="white")
+                axes_list = list(axes.flat)
 
-        # ── 6. Capacity Utilization % ──────────────────────────────────────
-        util_years, util_vals = _last_five_actual_operational(op, "capacity_utilisation_pct")
-        if not util_years:
-            util_years, util_vals = _last_five_actual_operational(op, "capacity_utilization_pct")
-        if not util_years:
-            util_years, util_vals = _last_five_actual_operational(op, "utilization_pct")
-        if util_years and util_vals:
-            axes[1, 2].plot(util_years, util_vals, color="#1F4690", linewidth=2.5, marker="o")
-            _style_axes(axes[1, 2], "Capacity Utilization (%)", ylabel="%")
-            _pad_top(axes[1, 2], util_vals)
-        else:
-            _empty(axes[1, 2], "Capacity Utilization")
+            fig.suptitle(
+                f"{company_name} — Operational Performance",
+                fontsize=14,
+                color="#1F4690",
+                fontweight="bold",
+                y=0.98,
+            )
+
+            # Re-style all axes in our grid
+            for ax in axes_list:
+                ax.set_facecolor("#F8FAFD")
+                ax.grid(axis="y", color="#E5EAF3", linewidth=0.8)
+                for spine in ax.spines.values():
+                    spine.set_visible(False)
+
+            # Draw each dynamic chart
+            for idx, chart in enumerate(charts_spec):
+                if idx >= len(axes_list):
+                    break
+                ax = axes_list[idx]
+                title = chart.get("title") or "Metric"
+                chart_type = chart.get("chart_type") or "bar"
+                years = [str(y) for y in (chart.get("years") or [])]
+                ylabel = chart.get("ylabel") or ""
+
+                stacked_values = chart.get("stacked_values") or {}
+                series_names = chart.get("series_names") or list(stacked_values.keys())
+
+                if chart_type == "stacked_bar" and series_names and stacked_values:
+                    bottoms = [0.0] * len(years)
+                    for s_idx, s_name in enumerate(series_names):
+                        s_vals = stacked_values.get(s_name) or []
+                        s_vals_num = [float(v) if v is not None else 0.0 for v in s_vals]
+                        s_vals_num = s_vals_num[:len(years)] + [0.0] * (len(years) - len(s_vals_num))
+                        ax.bar(years, s_vals_num, bottom=bottoms,
+                               color=_PALETTE[s_idx % len(_PALETTE)], label=s_name)
+                        bottoms = [b + v for b, v in zip(bottoms, s_vals_num)]
+                    _style_axes(ax, title, ylabel=ylabel)
+                    _pad_top(ax, bottoms)
+                    ax.legend(fontsize=7, frameon=False, loc="upper left")
+
+                elif chart_type == "donut":
+                    raw_vals = chart.get("values") or []
+                    sizes = [float(v) if v is not None else 0.0 for v in raw_vals]
+                    labels = [years[i] if i < len(years) else f"Slice {i}" for i in range(len(sizes))]
+                    valid_pairs = [(l, s) for l, s in zip(labels, sizes) if s > 0]
+                    if valid_pairs:
+                        _render_pie(ax, [p[0] for p in valid_pairs], [p[1] for p in valid_pairs], title)
+                    else:
+                        _empty(ax, title, "n/a")
+
+                elif chart_type == "line":
+                    raw_vals = chart.get("values") or []
+                    vals = [float(v) if v is not None else 0.0 for v in raw_vals]
+                    vals = vals[:len(years)] + [0.0] * (len(years) - len(vals))
+                    ax.plot(years, vals, color="#1F4690", linewidth=2.5, marker="o")
+                    _style_axes(ax, title, ylabel=ylabel)
+                    _pad_top(ax, vals)
+
+                else:  # "bar" chart
+                    raw_vals = chart.get("values") or []
+                    vals = [float(v) if v is not None else 0.0 for v in raw_vals]
+                    vals = vals[:len(years)] + [0.0] * (len(years) - len(vals))
+                    ax.bar(years, vals, color="#1F4690")
+                    _style_axes(ax, title, ylabel=ylabel)
+                    _pad_top(ax, vals)
+
+            # Hide any unused slots in the subplot grid
+            for idx in range(n_charts, len(axes_list)):
+                axes_list[idx].axis("off")
 
     else:
         financial_history = financial_history or {}

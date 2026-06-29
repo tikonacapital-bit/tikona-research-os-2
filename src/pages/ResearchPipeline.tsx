@@ -63,6 +63,7 @@ import {
   FileText,
   Globe,
   ChevronRight,
+  Download,
   Play,
   Zap,
   X,
@@ -1119,14 +1120,24 @@ export default function ResearchPipeline() {
                       <div className="mb-3 flex items-center gap-3 rounded-lg bg-accent-50 border border-accent-100 px-4 py-3">
                         <BarChart3 className="h-4 w-4 text-accent-600 shrink-0" />
                         <span className="text-xs font-medium text-accent-800 flex-1">Financial Model — stored and ready</span>
-                        <a
-                          href={financialModelFileUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-accent-600 hover:text-accent-700 font-medium flex items-center gap-1"
-                        >
-                          Open <ExternalLink className="h-3 w-3" />
-                        </a>
+                        <div className="flex items-center gap-3">
+                          <a
+                            href={`https://docs.google.com/viewer?url=${encodeURIComponent(financialModelFileUrl)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-accent-600 hover:text-accent-700 font-medium flex items-center gap-1 border-r border-accent-100 pr-3"
+                          >
+                            View <Eye className="h-3 w-3" />
+                          </a>
+                          <a
+                            href={financialModelFileUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-accent-600 hover:text-accent-700 font-medium flex items-center gap-1"
+                          >
+                            Download <Download className="h-3 w-3" />
+                          </a>
+                        </div>
                       </div>
                     )}
 

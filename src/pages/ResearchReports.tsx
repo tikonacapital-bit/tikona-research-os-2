@@ -105,7 +105,7 @@ export default function ResearchReports() {
           </div>
 
           <Link
-            to="/admin/generate-research"
+            to="/admin/pipeline"
             className="inline-flex items-center gap-2 rounded-lg bg-accent-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all duration-150 hover:bg-accent-700 active:scale-[0.97]"
           >
             <Sparkles className="h-4 w-4" />
@@ -133,7 +133,7 @@ export default function ResearchReports() {
               Start by generating your first research report from the Generate Research page.
             </p>
             <Link
-              to="/admin/generate-research"
+              to="/admin/pipeline"
               className="mt-5 inline-flex items-center gap-2 rounded-lg bg-accent-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all duration-150 hover:bg-accent-700 active:scale-[0.97]"
             >
               <Sparkles className="h-4 w-4" />
