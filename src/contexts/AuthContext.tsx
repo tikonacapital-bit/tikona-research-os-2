@@ -8,7 +8,7 @@ import {
 } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
-import { AUDIT_ACTIONS } from '@/lib/constants';
+import { AUDIT_ACTIONS, ADMIN_EMAILS } from '@/lib/constants';
 
 export type UserRole = 'admin';
 
@@ -57,6 +57,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Handle session changes
   const handleSession = useCallback((newSession: Session | null) => {
     if (newSession?.user) {
+      const email = newSession.user.email;
+      if (!email || !(ADMIN_EMAILS as readonly string[]).includes(email)) {
+        console.warn(`Unauthorized login attempt from ${email}. Redirecting...`);
+        supabase.auth.signOut().then(() => {
+          window.location.href = 'https://research.tikonacapital.com';
+        });
+        return;
+      }
       setUser(newSession.user);
       setSession(newSession);
       setRole(determineRole());
@@ -78,6 +86,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
         console.log('Auth event:', event);
 
         if (event === 'SIGNED_IN' && newSession?.user.email) {
+          const email = newSession.user.email;
+          if (!(ADMIN_EMAILS as readonly string[]).includes(email)) {
+            console.warn(`Unauthorized sign in event from ${email}. Redirecting...`);
+            supabase.auth.signOut().then(() => {
+              window.location.href = 'https://research.tikonacapital.com';
+            });
+            return;
+          }
           logAuditEvent(AUDIT_ACTIONS.USER_LOGIN, newSession.user.email, {
             provider: 'google',
             timestamp: new Date().toISOString(),
@@ -91,6 +107,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
       if (!initialHandled) {
+        if (initialSession?.user?.email) {
+          const email = initialSession.user.email;
+          if (!(ADMIN_EMAILS as readonly string[]).includes(email)) {
+            console.warn(`Unauthorized getSession from ${email}. Redirecting...`);
+            supabase.auth.signOut().then(() => {
+              window.location.href = 'https://research.tikonacapital.com';
+            });
+            return;
+          }
+        }
         handleSession(initialSession);
       }
     });
