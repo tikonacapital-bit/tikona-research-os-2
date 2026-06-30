@@ -93,6 +93,8 @@ function formatPercent(value: number | null): string {
 // Main Page Component
 // ========================
 
+type RecentFilter = 'all' | 'report_approved' | 'vault_ready' | 'sector_framework';
+
 export default function ResearchPipeline() {
   const { user } = useAuth();
 
@@ -142,7 +144,7 @@ export default function ResearchPipeline() {
 
   // --- Recent Sessions ---
   const [recentSessions, setRecentSessions] = useState<PipelineSession[]>([]);
-  const [recentFilter, setRecentFilter] = useState<'all' | 'report_approved' | 'vault_ready' | 'sector_framework'>('all');
+  const [recentFilter, setRecentFilter] = useState<RecentFilter>('all');
 
   // --- Report Section Tabs ---
   const [activeReportTab, setActiveReportTab] = useState(0);
@@ -1003,7 +1005,7 @@ export default function ResearchPipeline() {
                     {recentSessions.length > 0 && (
                       <select
                         value={recentFilter}
-                        onChange={(e) => setRecentFilter(e.target.value as any)}
+                        onChange={(e) => setRecentFilter(e.target.value as RecentFilter)}
                         className="text-[11px] font-medium text-neutral-500 bg-neutral-50 hover:bg-neutral-100 border border-neutral-200 rounded px-2 py-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 cursor-pointer transition-all"
                       >
                         <option value="all">All Items</option>
