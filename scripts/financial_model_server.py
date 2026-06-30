@@ -398,6 +398,208 @@ def mirror_model_to_storage(ticker: str):
         )
 
 
+@app.post("/sync-screener/{ticker}")
+def sync_screener(ticker: str):
+    """
+    Programmatically logs into Screener, downloads the audited financials Excel workbook,
+    scrapes live stock indicators from yfinance / Screener HTML, and updates the equity_universe
+    database table in Supabase.
+    """
+    ticker = ticker.strip().upper()
+    print(f"[sync-screener] Syncing {ticker} from Screener.in...")
+    try:
+        username = os.environ.get("SCREENER_USERNAME")
+        password = os.environ.get("SCREENER_PASSWORD")
+        if not username or not password:
+            return {"status": "error", "message": "SCREENER_USERNAME or SCREENER_PASSWORD is not set in server environment"}
+
+        # 1. Download screener excel workbook
+        out_dir = os.path.join(OUTPUT_DIR, ticker)
+        os.makedirs(out_dir, exist_ok=True)
+        
+        from financial_model_v5 import download_screener_excel, extract_screener_data
+        
+        excel_path = download_screener_excel(ticker, out_dir, username, password)
+        screener_data = extract_screener_data(excel_path)
+        
+        # 2. Scrape live market ratios using yfinance / screener HTML
+        live_data = {}
+        try:
+            import yfinance as yf
+            info = yf.Ticker(f"{ticker}.NS").info
+            live_data["current_price"] = info.get("currentPrice")
+            live_data["market_cap"] = info.get("marketCap")
+            live_data["pe_ttm"] = info.get("trailingPE")
+            live_data["roe"] = (info.get("returnOnEquity") or 0) * 100 if info.get("returnOnEquity") else None
+            live_data["fifty_two_week_high"] = info.get("fiftyTwoWeekHigh")
+            live_data["fifty_two_week_low"] = info.get("fiftyTwoWeekLow")
+            live_data["volume"] = info.get("volume")
+        except Exception as e:
+            print(f"[sync-screener] yfinance lookup failed for {ticker}: {e}")
+
+        # Supplement with details from Screener HTML page
+        from bs4 import BeautifulSoup
+        try:
+            headers = {"User-Agent": "Mozilla/5.0"}
+            for u in [
+                f"https://www.screener.in/company/{ticker}/consolidated/",
+                f"https://www.screener.in/company/{ticker}/",
+            ]:
+                r = requests.get(u, headers=headers, timeout=10)
+                if r.status_code == 200:
+                    soup = BeautifulSoup(r.text, "html.parser")
+                    top_stats = soup.find("div", class_="company-ratios")
+                    if top_stats:
+                        for li in top_stats.find_all("li"):
+                            name_el = li.find("span", class_="name")
+                            val_el = li.find("span", class_="number")
+                            if name_el and val_el:
+                                name_text = name_el.get_text(strip=True).lower()
+                                val_text = val_el.get_text(strip=True).replace(",", "").replace("%", "")
+                                try:
+                                    val_float = float(val_text)
+                                    if "price" in name_text or "current price" in name_text:
+                                        if not live_data.get("current_price"):
+                                            live_data["current_price"] = val_float
+                                    elif "market cap" in name_text:
+                                        if not live_data.get("market_cap"):
+                                            live_data["market_cap"] = val_float * 1e7  # Screener stores in Cr
+                                    elif "stock p/e" in name_text or "p/e" in name_text:
+                                        if not live_data.get("pe_ttm"):
+                                            live_data["pe_ttm"] = val_float
+                                    elif "roce" in name_text:
+                                        live_data["roce"] = val_float
+                                    elif "roe" in name_text:
+                                        if not live_data.get("roe"):
+                                            live_data["roe"] = val_float
+                                    elif "promoter holding" in name_text:
+                                        live_data["promoter_holding_pct"] = val_float
+                                    elif "dividend yield" in name_text:
+                                        live_data["dividend_yield"] = val_float
+                                    elif "face value" in name_text:
+                                        live_data["face_value"] = val_float
+                                except ValueError:
+                                    pass
+                    break
+        except Exception as e:
+            print(f"[sync-screener] Screener HTML parse failed for {ticker}: {e}")
+
+        # 3. Map parsed Excel data to equity_universe columns
+        pl = screener_data.get("pl", {})
+        bs = screener_data.get("bs", {})
+        cf = screener_data.get("cf", {})
+        derived = screener_data.get("derived", {})
+        fiscal_years = screener_data.get("fiscal_years", [])
+        
+        def get_fy_val(series, fy):
+            try:
+                idx = fiscal_years.index(fy)
+                v = series[idx]
+                return float(v) if v is not None else None
+            except (ValueError, IndexError, TypeError):
+                return None
+
+        def get_last_val(series):
+            if not series:
+                return None
+            for v in reversed(series):
+                if v is not None:
+                    return float(v)
+            return None
+
+        # Get ISIN from master_company table using nse_symbol (ticker)
+        isin_code = None
+        if SUPABASE_URL and SUPABASE_SERVICE_KEY:
+            headers_api = {
+                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                "apikey": SUPABASE_SERVICE_KEY,
+                "Content-Type": "application/json",
+            }
+            try:
+                mc_url = f"{SUPABASE_URL}/rest/v1/master_company?nse_symbol=eq.{ticker}&select=isin"
+                mc_resp = requests.get(mc_url, headers=headers_api, timeout=10)
+                if mc_resp.status_code == 200 and mc_resp.json():
+                    isin_code = mc_resp.json()[0].get("isin")
+            except Exception as e:
+                print(f"[sync-screener] master_company lookup failed for {ticker}: {e}")
+        
+        # Fallback to avoid violating not-null constraint on equity_universe.isin_code
+        if not isin_code:
+            isin_code = f"INE{ticker:<9}".replace(" ", "0")[:12]
+
+        payload = {
+            "company_name": screener_data.get("company_name"),
+            "nse_code": ticker,
+            "isin_code": isin_code,
+            "current_price": live_data.get("current_price") or screener_data.get("cmp"),
+            "market_cap": live_data.get("market_cap") or screener_data.get("mcap"),
+            "pe_ttm": live_data.get("pe_ttm"),
+            "roe": live_data.get("roe"),
+            "roce": live_data.get("roce"),
+            "promoter_holding_pct": live_data.get("promoter_holding_pct"),
+            "dividend_yield": live_data.get("dividend_yield"),
+            "face_value": live_data.get("face_value") or screener_data.get("face_value"),
+            
+            # Historical Revenue
+            "revenue_fy2023": get_fy_val(pl.get("sales"), "FY23"),
+            "revenue_fy2024": get_fy_val(pl.get("sales"), "FY24"),
+            "revenue_fy2025": get_fy_val(pl.get("sales"), "FY25"),
+            "revenue_ttm": get_last_val(pl.get("sales")),
+            
+            # Historical PAT
+            "pat_fy2023": get_fy_val(pl.get("net_profit"), "FY23"),
+            "pat_fy2024": get_fy_val(pl.get("net_profit"), "FY24"),
+            "pat_fy2025": get_fy_val(pl.get("net_profit"), "FY25"),
+            "pat_ttm": get_last_val(pl.get("net_profit")),
+            
+            # Balance Sheet / Debt / Cash
+            "debt": get_last_val(bs.get("borrowings")),
+            "cash_equivalents": get_last_val(bs.get("cash")),
+            "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S")
+        }
+        
+        # Calculate derived margins
+        sales_ttm = payload["revenue_ttm"]
+        pat_ttm = payload["pat_ttm"]
+        if sales_ttm and pat_ttm:
+            payload["pat_margin_ttm"] = (pat_ttm / sales_ttm) * 100
+        
+        ebitda_ttm = get_last_val(derived.get("ebitda"))
+        if sales_ttm and ebitda_ttm:
+            payload["ebitda_margin_ttm"] = (ebitda_ttm / sales_ttm) * 100
+
+        # 4. Write to Supabase using REST API
+        if SUPABASE_URL and SUPABASE_SERVICE_KEY:
+            headers = {
+                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                "apikey": SUPABASE_SERVICE_KEY,
+                "Content-Type": "application/json",
+            }
+            # Query existing company_id
+            query_url = f"{SUPABASE_URL}/rest/v1/equity_universe?nse_code=eq.{ticker}&select=company_id"
+            q_resp = requests.get(query_url, headers=headers, timeout=10)
+            if q_resp.status_code == 200 and q_resp.json():
+                company_id = q_resp.json()[0]["company_id"]
+                # Update (PATCH)
+                up_url = f"{SUPABASE_URL}/rest/v1/equity_universe?company_id=eq.{company_id}"
+                up_resp = requests.patch(up_url, json=payload, headers=headers, timeout=10)
+                if up_resp.status_code >= 400:
+                    raise Exception(f"Failed to update equity_universe: {up_resp.status_code} {up_resp.text}")
+                payload["company_id"] = company_id
+            else:
+                # Insert (POST)
+                ins_url = f"{SUPABASE_URL}/rest/v1/equity_universe"
+                ins_resp = requests.post(ins_url, json=payload, headers=headers, timeout=10)
+                if ins_resp.status_code >= 400:
+                    raise Exception(f"Failed to insert into equity_universe: {ins_resp.status_code} {ins_resp.text}")
+
+        return {"status": "success", "data": payload}
+
+    except Exception as e:
+        traceback.print_exc()
+        return {"status": "error", "message": str(e)}
+
+
 # ========================
 # Run Server
 # ========================

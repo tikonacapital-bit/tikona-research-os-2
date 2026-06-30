@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
+import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
@@ -7,7 +8,8 @@ import PipelineProgressBar from '@/components/pipeline/PipelineProgressBar';
 import StageReview from '@/components/pipeline/StageReview';
 import PromptEditor from '@/components/pipeline/PromptEditor';
 import PostProductionPanel from '@/components/pipeline/PostProductionPanel';
-import { useCompanySearch, useCompanyFinancials } from '@/hooks/useCompanySearch';
+import { useCompanySearch, useCompanyFinancials, companySearchKeys } from '@/hooks/useCompanySearch';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   createPipelineSession,
@@ -38,7 +40,7 @@ import {
 import type { ResearchReport, SessionDocument } from '@/types/database';
 import { createRecommendation, hasRecommendationForSession } from '@/lib/recommendations-api';
 import type { RecommendationRating, PlanId } from '@/types/recommendations';
-import { runStage0, runStage1, runStage2, DEFAULT_PROMPTS, summarizeVaultDocuments } from '@/lib/anthropic-pipeline';
+import { runStage0, runStage1, runStage2, DEFAULT_PROMPTS, summarizeVaultDocuments, scrapeFinancialData } from '@/lib/anthropic-pipeline';
 import type { PromptOverrides } from '@/lib/anthropic-pipeline';
 import type { PipelineSession, PipelineProgress, PipelineStatus, SectorFramework } from '@/types/pipeline';
 import { PIPELINE_STAGE_LABELS, PIPELINE_MODELS, DEFAULT_PIPELINE_MODEL, getStageNumber } from '@/types/pipeline';
@@ -79,8 +81,15 @@ import {
 
 function formatCurrency(value: number | null): string {
   if (value == null) return '-';
-  if (value >= 10000000) return `₹${(value / 10000000).toFixed(2)} Cr`;
-  if (value >= 100000) return `₹${(value / 100000).toFixed(2)} L`;
+  if (value >= 1000000000000) {
+    return `₹${(value / 1000000000000).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} L Cr`;
+  }
+  if (value >= 10000000) {
+    return `₹${(value / 10000000).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
+  }
+  if (value >= 100000) {
+    return `₹${(value / 100000).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} L`;
+  }
   return `₹${value.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 }
 
@@ -97,6 +106,8 @@ type RecentFilter = 'all' | 'report_approved' | 'vault_ready' | 'sector_framewor
 
 export default function ResearchPipeline() {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const [isSyncingLive, setIsSyncingLive] = useState(false);
 
   // --- Company Search State ---
   const [searchInput, setSearchInput] = useState('');
@@ -266,12 +277,110 @@ export default function ResearchPipeline() {
     }).catch(() => {});
   }, [sessionId, selectedSector]);
 
+  // --- Live Data Fetching & Syncing ---
+  const handleSyncLiveData = useCallback(async (company: MasterCompany) => {
+    const value = company.nse_symbol;
+    if (!value) {
+      console.warn('[Pipeline] No NSE symbol found to sync from Screener');
+      return;
+    }
+
+    setIsSyncingLive(true);
+    const toastId = toast.loading(`Triggering Screener.in live scraping for ${company.company_name}...`);
+
+    try {
+      // Call the FastAPI sync-screener endpoint via our Vite proxy /proxy/fm
+      const response = await fetch(`/proxy/fm/sync-screener/${value.trim().toUpperCase()}`, {
+        method: 'POST',
+      });
+
+      if (response.status === 404) {
+        // VPS is running older server build. Fall back to browser-based Claude Web Search scraping.
+        console.warn('[Pipeline] VPS sync-screener endpoint returned 404. Falling back to browser Claude Search...');
+        toast.loading(`Server sync unavailable. Scraping via Claude Search...`, { id: toastId });
+
+        const scraped = await scrapeFinancialData(value.trim(), company.company_name);
+        console.log('[Pipeline] Scraped financials:', scraped);
+
+        if (scraped && (scraped.current_price || scraped.market_cap)) {
+          toast.loading(`Live data scraped! Saving to database...`, { id: toastId });
+
+          // Query if record exists
+          const { data: existing } = await supabase
+            .from('equity_universe')
+            .select('company_id')
+            .or(`nse_code.eq.${value.trim()},isin_code.eq.${company.isin || ''},bse_code.eq.${company.bse_code || ''}`)
+            .limit(1)
+            .maybeSingle();
+
+          if (existing?.company_id) {
+            const { error: updateErr } = await supabase
+              .from('equity_universe')
+              .update({
+                ...scraped,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('company_id', existing.company_id);
+
+            if (updateErr) throw updateErr;
+          } else {
+            const { error: insertErr } = await supabase
+              .from('equity_universe')
+              .insert({
+                ...scraped,
+                company_name: company.company_name,
+                nse_code: company.nse_symbol,
+                bse_code: company.bse_code,
+                isin_code: company.isin,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              });
+
+            if (insertErr) throw insertErr;
+          }
+
+          toast.success(`Supabase updated with fresh scraped financials!`, { id: toastId });
+        } else {
+          throw new Error('Scraped financial data was empty or invalid.');
+        }
+      } else {
+        if (!response.ok) {
+          throw new Error(`Screener sync endpoint returned status ${response.status}`);
+        }
+
+        const resData = await response.json();
+        if (resData.status === 'error') {
+          throw new Error(resData.message || 'Screener sync failed on server');
+        }
+
+        toast.success(`Screener financials synced successfully!`, { id: toastId });
+      }
+
+      toast.loading(`Live financials updated! Reloading view...`, { id: toastId });
+
+      // Invalidate the financials query to reload the updated data from Supabase
+      const key = company.nse_symbol || company.isin || company.bse_code || '';
+      queryClient.invalidateQueries({ queryKey: companySearchKeys.financials(key) });
+      queryClient.invalidateQueries({ queryKey: companySearchKeys.all });
+
+      toast.success(`Financials updated successfully!`, { id: toastId });
+    } catch (err) {
+      console.error('[Pipeline] Screener sync failed:', err);
+      toast.error(`Could not sync Screener data: ${err instanceof Error ? err.message : 'Unknown error'}`, { id: toastId });
+    } finally {
+      setIsSyncingLive(false);
+    }
+  }, [queryClient]);
+
   // --- Company Selection ---
   const handleSelectCompany = useCallback((company: MasterCompany) => {
     setSelectedCompany(company);
     setSearchInput(company.company_name);
     setIsDropdownOpen(false);
-  }, []);
+    
+    // Automatically fetch live data when selecting a company
+    handleSyncLiveData(company);
+  }, [handleSyncLiveData]);
 
   // --- Create Session → auto-create vault ---
   const handleCreateSession = async () => {
@@ -947,7 +1056,7 @@ export default function ResearchPipeline() {
                 {selectedCompany && (
                   <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm overflow-hidden animate-fade-up">
                     <div className="p-5">
-                      <div className="flex items-start justify-between mb-4">
+                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-4">
                         <div>
                           <h3 className="text-lg font-semibold text-neutral-900">{selectedCompany.company_name}</h3>
                           <div className="flex items-center gap-2 mt-1">
@@ -968,20 +1077,36 @@ export default function ResearchPipeline() {
                             ) : null}
                           </div>
                         </div>
-                        <Button
-                          onClick={handleCreateSession}
-                          disabled={isCreatingSession}
-                          className="h-10 px-5 rounded-xl bg-accent-600 hover:bg-accent-700 text-white font-medium shadow-sm"
-                        >
-                          {isCreatingSession ? (
-                            <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Creating...</>
-                          ) : (
-                            <><Play className="h-4 w-4 mr-2" /> Begin Pipeline</>
-                          )}
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            onClick={() => handleSyncLiveData(selectedCompany)}
+                            disabled={isSyncingLive || isCreatingSession}
+                            variant="outline"
+                            className="w-10 h-10 p-0 rounded-xl text-neutral-600 hover:text-neutral-900 border-neutral-200"
+                            title="Sync Live Data"
+                          >
+                            {isSyncingLive ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <RefreshCw className="h-4 w-4" />
+                            )}
+                          </Button>
+
+                          <Button
+                            onClick={handleCreateSession}
+                            disabled={isCreatingSession || isSyncingLive}
+                            className="h-10 px-5 rounded-xl bg-accent-600 hover:bg-accent-700 text-white font-medium shadow-sm"
+                          >
+                            {isCreatingSession ? (
+                              <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Creating...</>
+                            ) : (
+                              <><Play className="h-4 w-4 mr-2" /> Begin Pipeline</>
+                            )}
+                          </Button>
+                        </div>
                       </div>
 
-                      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
                         <MetricCard label="Market Cap" value={financials ? formatCurrency(financials.market_cap) : '-'} />
                         <MetricCard label="CMP" value={financials ? formatCurrency(financials.current_price) : '-'} />
                         <MetricCard label="P/E (TTM)" value={financials?.pe_ttm?.toFixed(1) ?? '-'} />

@@ -1249,7 +1249,7 @@ STEP 9 — STRUCTURED ANALYTICAL DATA (web search aggressively for these — the
   - values: list of 8 numbers matching the years (use null for unavailable data). For donut/pie, values represent current share (0-100).
   - ylabel: Y-axis label/unit (e.g. "₹ Cr", "Count", "Utilisation (%)", "MT")
   - series_names: list of series names (only for stacked_bar; e.g. ["India", "Overseas"])
-  - stacked_values: dict mapping series_name -> list of 8 numbers matching the years (only for stacked_bar; e.g. {"India": [10, 12, ...]})
+  - stacked_values: dict mapping series_name -> list of 8 numbers matching the years (only for stacked_bar; e.g. {{"India": [10, 12, ...]}})
 - Guidance per sector:
   - Manufacturing/Recycling: Capacity, Production Volume, Capacity Utilisation (%), Plant Counts.
   - Services/SaaS: Headcount, Active Clients, Billable Utilisation %, Revenue/Employee.

@@ -123,6 +123,7 @@ interface AnthropicCallOptions {
   maxTokens?: number;
   temperature?: number;
   useWebSearch?: boolean;
+  maxSearchUses?: number;
 }
 
 interface AnthropicResult {
@@ -147,7 +148,7 @@ async function callAnthropicWithSearch(options: AnthropicCallOptions): Promise<A
   } = options;
 
   const baseTools: Anthropic.Tool[] = useWebSearch
-    ? [{ type: 'web_search_20250305' as const, name: 'web_search', max_uses: 20 } as unknown as Anthropic.Tool]
+    ? [{ type: 'web_search_20250305' as const, name: 'web_search', max_uses: options.maxSearchUses ?? 20 } as unknown as Anthropic.Tool]
     : [];
 
   const passedTools = baseTools.length > 0 ? baseTools : undefined;
@@ -161,7 +162,7 @@ async function callAnthropicWithSearch(options: AnthropicCallOptions): Promise<A
   let totalTokensUsed = 0;
   
   let loopCount = 0;
-  const maxLoops = 15;
+  const maxLoops = options.maxSearchUses ? (options.maxSearchUses + 1) : 15;
 
   while (loopCount < maxLoops) {
     loopCount++;
@@ -1371,3 +1372,96 @@ function parseSectionsFromResponse(
 
   return results;
 }
+
+/**
+ * Helper to extract JSON object from text containing conversational text or markdown code blocks.
+ */
+function extractJson(text: string): any {
+  // Try matching code blocks first
+  const codeBlockMatch = text.match(/```json\s*([\s\S]*?)\s*```/) || text.match(/```\s*([\s\S]*?)\s*```/);
+  if (codeBlockMatch) {
+    try {
+      return JSON.parse(codeBlockMatch[1].trim());
+    } catch (e) {}
+  }
+  
+  // Fallback: search for the first '{' and last '}'
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start !== -1 && end !== -1 && end > start) {
+    const jsonCandidate = text.slice(start, end + 1);
+    try {
+      return JSON.parse(jsonCandidate.trim());
+    } catch (e) {}
+  }
+  
+  throw new Error("Could not find a valid JSON object in response");
+}
+
+/**
+ * Scrapes live company financial data from the web (using Claude Web Search)
+ * and formats it as a partial EquityUniverse object.
+ */
+export async function scrapeFinancialData(
+  nseSymbol: string,
+  companyName: string
+): Promise<Partial<EquityUniverse>> {
+  const systemPrompt = `You are a financial data scraping assistant. Your job is to fetch the absolute latest financial and market data for the given Indian company from Screener.in, Yahoo Finance (Ticker: ${nseSymbol}.NS), or Moneycontrol.
+Use your web search tool to find the current market price, market cap, and key financial ratios/metrics.
+YOUR RESPONSE MUST BE A VALID JSON OBJECT AND NOTHING ELSE. Do not include markdown code block formatting or explanations. Output only raw JSON.
+
+The JSON object keys must match these exact fields (provide values as numbers or null if not found):
+- current_price (current stock price in INR)
+- market_cap (market capitalization in INR, e.g. if 14,000 Cr, it is 140000000000)
+- enterprise_value (enterprise value in INR)
+- pe_ttm (trailing 12-month Price to Earnings ratio)
+- pe_avg_3yr (3-year average P/E ratio)
+- ev_ebitda_ttm (trailing 12-month EV to EBITDA ratio)
+- ps_ttm (Price to Sales ratio)
+- roe (Return on Equity percentage, e.g. 15.5 for 15.5%)
+- roce (Return on Capital Employed percentage, e.g. 18.2 for 18.2%)
+- roic (Return on Invested Capital percentage)
+- ebitda_margin_ttm (TTM EBITDA margin percentage)
+- pat_margin_ttm (TTM Net Profit margin percentage)
+- debt (total debt in INR)
+- cash_equivalents (total cash and bank balance in INR)
+- net_debt (net debt in INR)
+- net_worth (net worth in INR)
+- promoter_holding_pct (promoter holding percentage, e.g. 72.1 for 72.1%)
+- revenue_fy2023 (FY2023 revenue in INR)
+- revenue_fy2024 (FY2024 revenue in INR)
+- revenue_fy2025 (FY2025 revenue in INR)
+- revenue_ttm (TTM revenue in INR)
+- pat_fy2023 (FY2023 profit after tax in INR)
+- pat_fy2024 (FY2024 profit after tax in INR)
+- pat_fy2025 (FY2025 profit after tax in INR)
+- pat_ttm (TTM profit after tax in INR)
+- dividend_yield (dividend yield percentage)
+- face_value (face value in INR)
+`;
+
+  const userPrompt = `Search for:
+1. "${companyName} Screener.in"
+2. "${companyName} BSE NSE stock price Yahoo Finance"
+3. "${companyName} financials Screener"
+
+Retrieve the latest figures and output the JSON mapping for ${companyName} (NSE symbol: ${nseSymbol}). Make sure to get the actual numbers (not placeholder or old numbers from 2024 or earlier, verify today's date context).`;
+
+  const result = await callAnthropicWithSearch({
+    systemPrompt,
+    userPrompt,
+    model: 'claude-sonnet-4-6',
+    maxTokens: 2000,
+    temperature: 0.1,
+    useWebSearch: true,
+    maxSearchUses: 3, // Restrict to 3 searches max to keep execution time short
+  });
+
+  try {
+    return extractJson(result.text);
+  } catch (err) {
+    console.error('[Pipeline] JSON extraction failed. Raw text was:', result.text);
+    throw new Error('Failed to parse financial data from Claude output: ' + (err as any).message);
+  }
+}
+
