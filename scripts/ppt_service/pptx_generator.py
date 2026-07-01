@@ -1218,7 +1218,7 @@ def _split_saarthi_framework(text: str, saarthi: dict) -> dict[str, str]:
     cleaned_text = (text or "").strip()
     if cleaned_text:
         pattern = re.compile(
-            r"(?:^|\n|(?<=[.!?\)\]]\s))\s*([SARTHIsarthi])\s*[—–\-:]\s+(?=[A-Za-z])",
+            r"(?:^|\n|(?<=[.!?\)\]]\s))\s*(?:\*\*|__)?\s*([SARTHIsarthi])\s*[—–\-:]\s+(?=[A-Za-z])",
         )
         matches = list(pattern.finditer(cleaned_text))
         segments: list[tuple[str, str]] = []
@@ -1248,8 +1248,9 @@ def _split_saarthi_framework(text: str, saarthi: dict) -> dict[str, str]:
             name = str(d.get("name") or _SAARTHI_DIMENSION_NAMES[card_key]).strip()
             score = d.get("score")
             max_score = d.get("max_score") or 15
-            evidence = (d.get("key_evidence") or d.get("assessment") or "").strip()
-            score_part = f"{score}/{max_score}" if score is not None else ""
+            fmt_score = f"{int(score)}" if score is not None and score.is_integer() else f"{score}" if score is not None else ""
+            fmt_max = f"{int(max_score)}" if max_score is not None and max_score.is_integer() else f"{max_score}" if max_score is not None else ""
+            score_part = f"{fmt_score}/{fmt_max}" if fmt_score else ""
             head = f"{name}: {score_part}".strip(": ").rstrip()
             result[card_key] = (head + (". " + evidence if evidence else "")).strip()
         else:
@@ -1280,7 +1281,7 @@ def _synthesise_saarthi_assessment(saarthi: dict) -> str:
 def _extract_score_from_text(text: str) -> tuple[float, float] | None:
     if not text:
         return None
-    match = re.search(r"\b(\d+)\s*/\s*(\d+)\b", text)
+    match = re.search(r"\b(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)\b", text)
     if match:
         try:
             return float(match.group(1)), float(match.group(2))

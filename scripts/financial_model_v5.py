@@ -1255,6 +1255,8 @@ STEP 9 — STRUCTURED ANALYTICAL DATA (web search aggressively for these — the
   - Services/SaaS: Headcount, Active Clients, Billable Utilisation %, Revenue/Employee.
   - BFSI: Loan Book (AUM), Net Interest Margin %, GNPA/NNPA %, CASA Ratio %, Cost-to-Income.
   - Retail/Consumer: Store Count, Same-Store Sales Growth %, Ticket Size, Rev/Sq Ft.
+- revenue_mix_pct: dict mapping key business segments/products to current % share (summing to 1.0, e.g. {"Segment A": 0.6, "Segment B": 0.4})
+- geography_mix_pct: dict mapping regions/countries to current % share of revenue (summing to 1.0, e.g. {"India": 0.8, "Overseas": 0.2})
 
 (b) governance — REAL data from BSE/NSE filings or company AR:
 - board: list of {{name, designation, status (Promoter Executive|Independent|Nominee), din, since (year)}}
@@ -1388,7 +1390,9 @@ Return ONLY valid JSON. Start with {{ end with }}. No prose, no markdown fences.
         "series_names": ["Series1", ...] (optional, only for stacked_bar),
         "stacked_values": {{"Series1": [number, ...]}} (optional, only for stacked_bar)
       }}
-    ]
+    ],
+    "revenue_mix_pct": {{"Segment1": n}},
+    "geography_mix_pct": {{"Region1": n}}
   }},
   "governance": {{
     "board":[{{"name":str,"designation":str,"status":str,"din":str,"since":str}}],

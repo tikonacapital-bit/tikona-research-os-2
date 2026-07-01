@@ -868,7 +868,7 @@ Apply the proprietary SAARTHI Scorecard (100-point system) with detailed analysi
 
 CRITICAL REQUIREMENT: For each dimension, copy the exact score (e.g. S: 12/15, A1: 8/10, etc.) and total score (e.g. 78/100) from the provided Stage 1 Investment Thesis in the context block. Do NOT re-calculate or change these numbers. Make sure they are identical.
 
-For each dimension, provide: the score (out of max), a 2-3 sentence justification with specific data, and key evidence.
+For each dimension, output a heading in the exact format: "S — Scalability of Core Engine (Score: X/15)" where X is the score from the context. Below the heading, provide a 2-3 sentence justification with specific data and key evidence. Do NOT repeat the score (e.g., "Score: X/15" or similar) anywhere inside the body text. The score must only appear once, inside the heading.
 Sum all scores out of 100 and map to: STRONG BUY (85-100), BUY (70-84), ACCUMULATE (55-69), HOLD (40-54), UNDERPERFORM (25-39), SELL/AVOID (<25).
 
 ---
