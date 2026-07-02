@@ -12,6 +12,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import {
   usePromptTemplates,
   useCreatePromptTemplate,
@@ -37,6 +38,7 @@ import type { PromptTemplate } from '@/types/database';
 
 export default function PromptLibrary() {
   const { user } = useAuth();
+  const confirm = useConfirm();
   const userEmail = user?.email;
 
   const { data: templates, isLoading } = usePromptTemplates(userEmail);
@@ -155,7 +157,14 @@ export default function PromptLibrary() {
   };
 
   const handleDelete = async (template: PromptTemplate) => {
-    if (!window.confirm(`Delete prompt "${template.title}"? This action cannot be undone.`)) {
+    const proceed = await confirm({
+      title: `Delete prompt "${template.title}"?`,
+      description: 'This action cannot be undone. All template details will be permanently deleted.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'destructive',
+    });
+    if (!proceed) {
       return;
     }
 

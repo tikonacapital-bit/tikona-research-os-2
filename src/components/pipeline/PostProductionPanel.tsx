@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import {
   Select,
   SelectContent,
@@ -74,6 +75,7 @@ export default function PostProductionPanel({
   initialReport = null,
   onPublished,
 }: PostProductionPanelProps) {
+  const confirm = useConfirm();
   // --- Report ---
   const [reportId, setReportId] = useState<string | null>(null);
 
@@ -343,12 +345,13 @@ export default function PostProductionPanel({
     }
 
     if (!financialModelFileUrl && !useMock) {
-      const proceed = window.confirm(
-        'Warning: No financial model Excel file was found for this session.\n\n' +
-        'Generating the report now will fall back to text placeholders (charts and tables will not be injected).\n\n' +
-        'We highly recommend scrolling up to the "Vault and Documents" stage, clicking "Generate Financial Model", waiting for it to complete (~10 min), and then returning here.\n\n' +
-        'Do you want to proceed with the text-only fallback report anyway?'
-      );
+      const proceed = await confirm({
+        title: 'Missing Financial Model',
+        description: 'No financial model Excel file was found for this session. Generating the report now will fall back to text placeholders (charts/tables will not be injected). Do you want to proceed with the fallback report anyway?',
+        confirmText: 'Proceed anyway',
+        cancelText: 'Cancel',
+        variant: 'destructive',
+      });
       if (!proceed) return;
     }
 
@@ -496,9 +499,14 @@ export default function PostProductionPanel({
 
   const handleResetScript = useCallback(async () => {
     if (!reportId) return;
-    if (!window.confirm("Are you sure you want to delete this script? This will remove the script and you'll need to generate a new one.")) {
-      return;
-    }
+    const proceed = await confirm({
+      title: 'Delete Podcast Script?',
+      description: "Are you sure you want to delete this script? This will remove the script and you'll need to generate a new one.",
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'destructive',
+    });
+    if (!proceed) return;
     setScriptSaving(true);
     try {
       await updatePodcastScript(reportId, '');
@@ -589,7 +597,14 @@ export default function PostProductionPanel({
 
   const handleResetVideoScript = useCallback(async () => {
     if (!reportId) return;
-    if (!window.confirm("Delete this video script? You'll need to generate a new one.")) return;
+    const proceed = await confirm({
+      title: 'Delete Video Script?',
+      description: "Delete this video script? You'll need to generate a new one.",
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'destructive',
+    });
+    if (!proceed) return;
     setVideoScriptSaving(true);
     try {
       await updateVideoScript(reportId, '');

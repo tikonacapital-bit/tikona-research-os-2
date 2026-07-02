@@ -11,6 +11,7 @@ import PostProductionPanel from '@/components/pipeline/PostProductionPanel';
 import { useCompanySearch, useCompanyFinancials, companySearchKeys } from '@/hooks/useCompanySearch';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import {
   createPipelineSession,
   transitionPipelineStatus,
@@ -33,10 +34,12 @@ import {
   generateFinancialModel,
   mirrorFinancialModelToStorage,
   replaceFinancialModelFile,
+  deleteFinancialModelFile,
   unpublishReport,
   getReportBySession,
   createResearchReport,
   uploadDocument,
+  deleteDocument,
 } from '@/lib/api';
 import type { ResearchReport, SessionDocument } from '@/types/database';
 import { createRecommendation, hasRecommendationForSession } from '@/lib/recommendations-api';
@@ -80,6 +83,15 @@ import {
 // Formatting Helpers
 // ========================
 
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve((reader.result as string).split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 function formatCurrency(value: number | null): string {
   if (value == null) return '-';
   if (value >= 1000000000000) {
@@ -107,6 +119,7 @@ type RecentFilter = 'all' | 'report_approved' | 'vault_ready' | 'sector_framewor
 
 export default function ResearchPipeline() {
   const { user } = useAuth();
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
   const [isSyncingLive, setIsSyncingLive] = useState(false);
 
@@ -540,6 +553,25 @@ export default function ResearchPipeline() {
     handleRunStage0();
   };
 
+  // --- Mirrors the current financial model file into the Drive vault, replacing any existing copy there. ---
+  const mirrorFinancialModelToVault = async (ticker: string, file: File) => {
+    if (!vaultId) return;
+    const fileName = `${ticker.toUpperCase()}_model.xlsx`;
+    try {
+      const existingDoc = vaultDocuments.find((d) => d.name === fileName);
+      if (existingDoc) {
+        await deleteDocument(existingDoc.id);
+        setVaultDocuments((prev) => prev.filter((d) => d.id !== existingDoc.id));
+      }
+      const base64 = await fileToBase64(file);
+      const uploadedDoc = await uploadDocument(vaultId, fileName, base64);
+      setVaultDocuments((prev) => [...prev, uploadedDoc]);
+    } catch (err) {
+      console.error('Failed to mirror financial model to Drive vault:', err);
+      toast.error('Model saved, but syncing to Drive vault failed');
+    }
+  };
+
   // --- Replace Financial Model — user downloaded, edited, and re-uploads the Excel ---
   const handleReplaceFinancialModelFile = async (file: File) => {
     const ticker = selectedCompany?.nse_symbol;
@@ -559,6 +591,7 @@ export default function ResearchPipeline() {
       setFinancialModelStatus('success');
       setFinancialModelFileUrl(fileUrl);
       await updatePipelineOutput(sessionId, { financial_model_file_url: fileUrl });
+      await mirrorFinancialModelToVault(ticker, file);
 
       const updated = await getPipelineSession(sessionId);
       if (updated) setSession(updated);
@@ -569,6 +602,49 @@ export default function ResearchPipeline() {
     } finally {
       setIsReplacingFinancialModel(false);
       if (financialModelFileInputRef.current) financialModelFileInputRef.current.value = '';
+    }
+  };
+
+  // --- Delete Financial Model — removes it from storage and the Drive vault entirely ---
+  const handleDeleteFinancialModel = async () => {
+    const ticker = selectedCompany?.nse_symbol;
+    if (!sessionId || !ticker) return;
+    
+    const proceed = await confirm({
+      title: 'Delete stored financial model?',
+      description: 'This cannot be undone. All changes will be permanently deleted.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'destructive',
+    });
+    if (!proceed) return;
+
+    const toastId = toast.loading('Deleting financial model...');
+
+    try {
+      await deleteFinancialModelFile(ticker);
+      await updatePipelineOutput(sessionId, { financial_model_file_url: null, financial_model_json_url: null });
+
+      const fileName = `${ticker.toUpperCase()}_model.xlsx`;
+      const existingDoc = vaultDocuments.find((d) => d.name === fileName);
+      if (existingDoc) {
+        try {
+          await deleteDocument(existingDoc.id);
+          setVaultDocuments((prev) => prev.filter((d) => d.id !== existingDoc.id));
+        } catch (err) {
+          console.error('Failed to delete financial model from Drive vault:', err);
+        }
+      }
+
+      setFinancialModelFileUrl(null);
+      setFinancialModelStatus('idle');
+
+      const updated = await getPipelineSession(sessionId);
+      if (updated) setSession(updated);
+
+      toast.success('Financial model deleted', { id: toastId });
+    } catch (err) {
+      toast.error(`Failed to delete financial model: ${err instanceof Error ? err.message : 'Unknown error'}`, { id: toastId });
     }
   };
 
@@ -913,7 +989,15 @@ export default function ResearchPipeline() {
   // --- Delete session ---
   const handleDeleteSession = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm('Delete this session?')) return;
+    
+    const proceed = await confirm({
+      title: 'Delete this session?',
+      description: 'Are you sure you want to delete this session? This action cannot be undone.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'destructive',
+    });
+    if (!proceed) return;
     try {
       await deletePipelineSession(id);
       setRecentSessions(prev => prev.filter(s => s.session_id !== id));
@@ -1303,7 +1387,7 @@ export default function ResearchPipeline() {
                             type="button"
                             onClick={() => financialModelFileInputRef.current?.click()}
                             disabled={isReplacingFinancialModel}
-                            className="text-xs text-accent-600 hover:text-accent-700 font-medium flex items-center gap-1 disabled:opacity-50"
+                            className="text-xs text-accent-600 hover:text-accent-700 font-medium flex items-center gap-1 disabled:opacity-50 border-r border-accent-100 pr-3"
                           >
                             {isReplacingFinancialModel ? (
                               <>Replacing... <Loader2 className="h-3 w-3 animate-spin" /></>
@@ -1321,6 +1405,14 @@ export default function ResearchPipeline() {
                               if (file) handleReplaceFinancialModelFile(file);
                             }}
                           />
+                          <button
+                            type="button"
+                            onClick={handleDeleteFinancialModel}
+                            disabled={isReplacingFinancialModel}
+                            className="text-xs text-red-500 hover:text-red-600 font-medium flex items-center gap-1 disabled:opacity-50"
+                          >
+                            Delete <Trash2 className="h-3 w-3" />
+                          </button>
                         </div>
                       </div>
                     )}

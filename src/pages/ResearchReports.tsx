@@ -14,6 +14,7 @@ import {
   useDeleteResearchSession,
 } from '@/hooks/useResearchSession';
 import { useAuth } from '@/contexts/AuthContext';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import { Spinner, TableSkeleton } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
 import StatusBadge from '@/components/StatusBadge';
@@ -40,6 +41,7 @@ type StatusFilter = 'all' | ResearchSession['status'];
 
 export default function ResearchReports() {
   const { user } = useAuth();
+  const confirm = useConfirm();
   const [page, setPage] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -68,9 +70,14 @@ export default function ResearchReports() {
   });
 
   const handleDelete = async (sessionId: string) => {
-    if (!window.confirm('Delete this research session? This cannot be undone.')) {
-      return;
-    }
+    const proceed = await confirm({
+      title: 'Delete research session?',
+      description: 'This cannot be undone. All session data will be permanently deleted.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'destructive',
+    });
+    if (!proceed) return;
     setDeletingId(sessionId);
     try {
       await deleteMutation.mutateAsync(sessionId);

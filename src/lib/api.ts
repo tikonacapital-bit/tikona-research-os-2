@@ -247,6 +247,8 @@ export async function mirrorFinancialModelToStorage(
 const FM_STORAGE_BUCKET = 'research-reports-html';
 const financialModelStoragePath = (ticker: string) =>
   `financial-models/${ticker.toUpperCase()}/${ticker.toUpperCase()}_model.xlsx`;
+const financialModelJsonStoragePath = (ticker: string) =>
+  `financial-models/${ticker.toUpperCase()}/${ticker.toUpperCase()}_model.json`;
 
 /**
  * Replaces the stored financial model for a ticker with a user-provided Excel file:
@@ -275,6 +277,18 @@ export async function replaceFinancialModelFile(
   const { data } = supabase.storage.from(FM_STORAGE_BUCKET).getPublicUrl(path);
   // Cache-bust — the object path is stable across replacements, so the public URL doesn't change.
   return { fileUrl: `${data.publicUrl}?t=${Date.now()}`, filePath: path };
+}
+
+/**
+ * Deletes the stored financial model (xlsx + its companion json, if present) for a ticker,
+ * without uploading a replacement.
+ */
+export async function deleteFinancialModelFile(ticker: string): Promise<void> {
+  const paths = [financialModelStoragePath(ticker), financialModelJsonStoragePath(ticker)];
+  const { error } = await supabase.storage.from(FM_STORAGE_BUCKET).remove(paths);
+  if (error) {
+    throw new Error(`Failed to delete financial model: ${error.message}`);
+  }
 }
 
 /**

@@ -42,33 +42,37 @@ const queryClient = new QueryClient({
   },
 });
 
+import { ConfirmProvider } from '@/contexts/ConfirmContext';
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <AuthProvider>
-          <Routes>
-            {/* Public Routes */}
-            <Route path="/login" element={<Login />} />
+          <ConfirmProvider>
+            <Routes>
+              {/* Public Routes */}
+              <Route path="/login" element={<Login />} />
 
-            {/* Admin Routes */}
-            <Route element={<ProtectedLayout />}>
-              <Route element={<AdminLayout />}>
-                <Route path="/admin" element={<Dashboard />} />
-                <Route path="/admin/equity-database" element={<MasterDatabase />} />
-                <Route path="/admin/universe" element={<Universe />} />
-                <Route path="/admin/research-reports" element={<ResearchReports />} />
-                <Route path="/admin/pipeline" element={<ResearchPipeline />} />
-                <Route path="/admin/prompts" element={<PromptLibrary />} />
-                <Route path="/admin/recommendations" element={<Recommendations />} />
-                <Route path="/admin/sector-thesis" element={<SectorThesis />} />
-                <Route path="/admin/system-health" element={<SystemHealth />} />
+              {/* Admin Routes */}
+              <Route element={<ProtectedLayout />}>
+                <Route element={<AdminLayout />}>
+                  <Route path="/admin" element={<Dashboard />} />
+                  <Route path="/admin/equity-database" element={<MasterDatabase />} />
+                  <Route path="/admin/universe" element={<Universe />} />
+                  <Route path="/admin/research-reports" element={<ResearchReports />} />
+                  <Route path="/admin/pipeline" element={<ResearchPipeline />} />
+                  <Route path="/admin/prompts" element={<PromptLibrary />} />
+                  <Route path="/admin/recommendations" element={<Recommendations />} />
+                  <Route path="/admin/sector-thesis" element={<SectorThesis />} />
+                  <Route path="/admin/system-health" element={<SystemHealth />} />
+                </Route>
               </Route>
-            </Route>
 
-            {/* Catch-all redirect */}
-            <Route path="*" element={<Navigate to="/admin" replace />} />
-          </Routes>
+              {/* Catch-all redirect */}
+              <Route path="*" element={<Navigate to="/admin" replace />} />
+            </Routes>
+          </ConfirmProvider>
 
           {/* Toast notifications */}
           <Toaster position="top-right" richColors closeButton />

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import { cn } from '@/lib/utils';
 import { fetchPptPlaceholders, savePptPlaceholders } from '@/lib/api';
 import {
@@ -235,6 +236,7 @@ export default function PPTDataPanel({
   serviceAvailable,
   onConfirmed,
 }: PPTDataPanelProps) {
+  const confirm = useConfirm();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
@@ -286,9 +288,13 @@ export default function PPTDataPanel({
 
   const handleReset = useCallback(async () => {
     if (!reportId || !serviceAvailable) return;
-    const proceed = window.confirm(
-      'Are you sure you want to reload and reset all placeholders from the report? This will discard your current confirmed overrides and pull fresh copywriting content.'
-    );
+    const proceed = await confirm({
+      title: 'Reset copywriting placeholders?',
+      description: 'Are you sure you want to reload and reset all placeholders from the report? This will discard your current confirmed overrides and pull fresh copywriting content.',
+      confirmText: 'Reset',
+      cancelText: 'Cancel',
+      variant: 'destructive',
+    });
     if (!proceed) return;
 
     setLoading(true);

@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { useAuth } from '@/contexts/AuthContext';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import { useCompanySearch, useCompanyFinancials } from '@/hooks/useCompanySearch';
 import {
   createRecommendation,
@@ -413,6 +414,7 @@ function RecTable({
 
 export default function Recommendations() {
   const { user } = useAuth();
+  const confirm = useConfirm();
   const [activeTab, setActiveTab] = useState<'create' | 'my' | 'performance'>('create');
 
   // ---- Create form state ----
@@ -582,7 +584,14 @@ export default function Recommendations() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this recommendation?')) return;
+    const proceed = await confirm({
+      title: 'Delete recommendation?',
+      description: 'Are you sure you want to delete this recommendation? This action cannot be undone.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'destructive',
+    });
+    if (!proceed) return;
     try {
       await deleteRecommendation(id);
       toast.success('Deleted');
