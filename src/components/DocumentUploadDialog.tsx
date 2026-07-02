@@ -32,12 +32,28 @@ const DOCUMENT_CATEGORIES = [
 const MAX_FILE_SIZE_MB = 50;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
+const EXCEL_MIME_TYPES = [
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel',
+];
+
+function isExcelFile(file: File): boolean {
+  return /\.(xlsx|xls)$/i.test(file.name) || EXCEL_MIME_TYPES.includes(file.type);
+}
+
+function isAllowedFile(file: File, category: string): boolean {
+  return category === 'financial_model' ? isExcelFile(file) : file.type === 'application/pdf';
+}
+
 interface DocumentUploadDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   folderId: string;
   nseSymbol: string;
   onUploadComplete: (document: VaultDocument) => void;
+  /** Called after a successful upload when the "Financial Model" category is selected, so the
+   *  caller can also mirror the Excel file to the canonical financial-model storage location. */
+  onFinancialModelFileUploaded?: (file: File) => void | Promise<void>;
 }
 
 export default function DocumentUploadDialog({
@@ -46,6 +62,7 @@ export default function DocumentUploadDialog({
   folderId,
   nseSymbol,
   onUploadComplete,
+  onFinancialModelFileUploaded,
 }: DocumentUploadDialogProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [category, setCategory] = useState<string>('');
@@ -73,6 +90,19 @@ export default function DocumentUploadDialog({
     [onOpenChange, resetState]
   );
 
+  const handleCategoryChange = useCallback(
+    (value: string) => {
+      setCategory(value);
+      setError(null);
+      // Drop the selected file if it no longer matches the newly chosen category's allowed type.
+      if (selectedFile && !isAllowedFile(selectedFile, value)) {
+        setSelectedFile(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    },
+    [selectedFile]
+  );
+
   const handleFileSelect = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
@@ -85,14 +115,14 @@ export default function DocumentUploadDialog({
         return;
       }
 
-      if (file.type !== 'application/pdf') {
-        setError('Only PDF files are supported.');
+      if (!isAllowedFile(file, category)) {
+        setError(category === 'financial_model' ? 'Only Excel files (.xlsx/.xls) are supported.' : 'Only PDF files are supported.');
         return;
       }
 
       setSelectedFile(file);
     },
-    []
+    [category]
   );
 
   const handleDrop = useCallback(
@@ -108,14 +138,14 @@ export default function DocumentUploadDialog({
         return;
       }
 
-      if (file.type !== 'application/pdf') {
-        setError('Only PDF files are supported.');
+      if (!isAllowedFile(file, category)) {
+        setError(category === 'financial_model' ? 'Only Excel files (.xlsx/.xls) are supported.' : 'Only PDF files are supported.');
         return;
       }
 
       setSelectedFile(file);
     },
-    []
+    [category]
   );
 
   const handleUpload = useCallback(async () => {
@@ -143,6 +173,10 @@ export default function DocumentUploadDialog({
 
       const uploadedDoc = await uploadDocument(folderId, fileName, base64);
 
+      if (category === 'financial_model' && onFinancialModelFileUploaded) {
+        await onFinancialModelFileUploaded(selectedFile);
+      }
+
       onUploadComplete(uploadedDoc);
       handleOpenChange(false);
     } catch (err) {
@@ -152,7 +186,7 @@ export default function DocumentUploadDialog({
     } finally {
       setIsUploading(false);
     }
-  }, [selectedFile, category, folderId, nseSymbol, onUploadComplete, handleOpenChange]);
+  }, [selectedFile, category, folderId, nseSymbol, onUploadComplete, onFinancialModelFileUploaded, handleOpenChange]);
 
   const formatSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
@@ -166,7 +200,7 @@ export default function DocumentUploadDialog({
         <DialogHeader>
           <DialogTitle>Upload Document</DialogTitle>
           <DialogDescription>
-            Upload a PDF document to the research vault.
+            Upload a document to the research vault.
           </DialogDescription>
         </DialogHeader>
 
@@ -174,7 +208,7 @@ export default function DocumentUploadDialog({
           {/* Category Selection */}
           <div className="space-y-2">
             <Label htmlFor="category">Document Category</Label>
-            <Select value={category} onValueChange={setCategory}>
+            <Select value={category} onValueChange={handleCategoryChange}>
               <SelectTrigger id="category">
                 <SelectValue placeholder="Select category..." />
               </SelectTrigger>
@@ -216,14 +250,20 @@ export default function DocumentUploadDialog({
                     Click to select or drag & drop
                   </p>
                   <p className="text-xs text-neutral-400 mt-1">
-                    PDF only, max {MAX_FILE_SIZE_MB}MB
+                    {category === 'financial_model'
+                      ? `Excel only (.xlsx/.xls), max ${MAX_FILE_SIZE_MB}MB`
+                      : `PDF only, max ${MAX_FILE_SIZE_MB}MB`}
                   </p>
                 </>
               )}
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".pdf,application/pdf"
+                accept={
+                  category === 'financial_model'
+                    ? '.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel'
+                    : '.pdf,application/pdf'
+                }
                 onChange={handleFileSelect}
                 className="hidden"
               />

@@ -32,6 +32,7 @@ import {
   getSessionDocuments,
   generateFinancialModel,
   mirrorFinancialModelToStorage,
+  replaceFinancialModelFile,
   unpublishReport,
   getReportBySession,
   createResearchReport,
@@ -136,6 +137,8 @@ export default function ResearchPipeline() {
   // --- Financial Model State ---
   const [financialModelStatus, setFinancialModelStatus] = useState<'idle' | 'generating' | 'success' | 'skipped'>('idle');
   const [financialModelFileUrl, setFinancialModelFileUrl] = useState<string | null>(null);
+  const [isReplacingFinancialModel, setIsReplacingFinancialModel] = useState(false);
+  const financialModelFileInputRef = useRef<HTMLInputElement>(null);
 
   // --- Pipeline Stage State ---
   const [pipelineStatus, setPipelineStatus] = useState<PipelineStatus>('company_selected');
@@ -535,6 +538,38 @@ export default function ResearchPipeline() {
   const handleSkipFinancialModel = () => {
     setFinancialModelStatus('skipped');
     handleRunStage0();
+  };
+
+  // --- Replace Financial Model — user downloaded, edited, and re-uploads the Excel ---
+  const handleReplaceFinancialModelFile = async (file: File) => {
+    const ticker = selectedCompany?.nse_symbol;
+    if (!sessionId || !ticker) return;
+
+    if (!/\.xlsx?$/i.test(file.name)) {
+      toast.error('Please select an Excel file (.xlsx or .xls)');
+      return;
+    }
+
+    setIsReplacingFinancialModel(true);
+    const toastId = toast.loading('Replacing financial model...');
+
+    try {
+      const { fileUrl } = await replaceFinancialModelFile(ticker, file);
+
+      setFinancialModelStatus('success');
+      setFinancialModelFileUrl(fileUrl);
+      await updatePipelineOutput(sessionId, { financial_model_file_url: fileUrl });
+
+      const updated = await getPipelineSession(sessionId);
+      if (updated) setSession(updated);
+
+      toast.success('Financial model replaced', { id: toastId });
+    } catch (err) {
+      toast.error(`Failed to replace financial model: ${err instanceof Error ? err.message : 'Unknown error'}`, { id: toastId });
+    } finally {
+      setIsReplacingFinancialModel(false);
+      if (financialModelFileInputRef.current) financialModelFileInputRef.current.value = '';
+    }
   };
 
   // --- Save documents to session ---
@@ -1260,10 +1295,32 @@ export default function ResearchPipeline() {
                             href={financialModelFileUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-xs text-accent-600 hover:text-accent-700 font-medium flex items-center gap-1"
+                            className="text-xs text-accent-600 hover:text-accent-700 font-medium flex items-center gap-1 border-r border-accent-100 pr-3"
                           >
                             Download <Download className="h-3 w-3" />
                           </a>
+                          <button
+                            type="button"
+                            onClick={() => financialModelFileInputRef.current?.click()}
+                            disabled={isReplacingFinancialModel}
+                            className="text-xs text-accent-600 hover:text-accent-700 font-medium flex items-center gap-1 disabled:opacity-50"
+                          >
+                            {isReplacingFinancialModel ? (
+                              <>Replacing... <Loader2 className="h-3 w-3 animate-spin" /></>
+                            ) : (
+                              <>Replace <Upload className="h-3 w-3" /></>
+                            )}
+                          </button>
+                          <input
+                            ref={financialModelFileInputRef}
+                            type="file"
+                            accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleReplaceFinancialModelFile(file);
+                            }}
+                          />
                         </div>
                       </div>
                     )}
@@ -1628,6 +1685,7 @@ export default function ResearchPipeline() {
             setVaultDocuments(prev => [...prev, doc]);
             toast.success(`${doc.name} uploaded`);
           }}
+          onFinancialModelFileUploaded={handleReplaceFinancialModelFile}
         />
       )}
     </div>

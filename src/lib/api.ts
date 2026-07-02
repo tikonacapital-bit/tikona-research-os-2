@@ -243,6 +243,40 @@ export async function mirrorFinancialModelToStorage(
   };
 }
 
+// Bucket + path convention used by scripts/financial_model_server.py — must stay in sync.
+const FM_STORAGE_BUCKET = 'research-reports-html';
+const financialModelStoragePath = (ticker: string) =>
+  `financial-models/${ticker.toUpperCase()}/${ticker.toUpperCase()}_model.xlsx`;
+
+/**
+ * Replaces the stored financial model for a ticker with a user-provided Excel file:
+ * deletes the existing xlsx at its fixed storage path, then uploads the new one in its place.
+ * Used when the user has downloaded and manually edited the model and wants to re-upload it.
+ */
+export async function replaceFinancialModelFile(
+  ticker: string,
+  file: File
+): Promise<{ fileUrl: string; filePath: string }> {
+  const path = financialModelStoragePath(ticker);
+
+  const { error: removeError } = await supabase.storage.from(FM_STORAGE_BUCKET).remove([path]);
+  if (removeError) {
+    throw new Error(`Failed to delete existing financial model: ${removeError.message}`);
+  }
+
+  const { error: uploadError } = await supabase.storage.from(FM_STORAGE_BUCKET).upload(path, file, {
+    upsert: true,
+    contentType: file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  if (uploadError) {
+    throw new Error(`Failed to upload new financial model: ${uploadError.message}`);
+  }
+
+  const { data } = supabase.storage.from(FM_STORAGE_BUCKET).getPublicUrl(path);
+  // Cache-bust — the object path is stable across replacements, so the public URL doesn't change.
+  return { fileUrl: `${data.publicUrl}?t=${Date.now()}`, filePath: path };
+}
+
 /**
  * Creates a research vault (Google Drive folder) for the given stock ticker
  * @param ticker - NSE stock symbol (e.g., "TATAMOTORS")
