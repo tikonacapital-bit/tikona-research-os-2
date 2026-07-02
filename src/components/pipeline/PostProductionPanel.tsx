@@ -87,6 +87,7 @@ export default function PostProductionPanel({
   const [pptFileId, setPptFileId] = useState<string | null>(null);
   const [pptFileUrl, setPptFileUrl] = useState<string | null>(null);
   const [slidesSyncing, setSlidesSyncing] = useState(false);
+  const [syncDelayRemaining, setSyncDelayRemaining] = useState<number>(0);
   const [useMock, setUseMock] = useState(false);
   const [previewTab, setPreviewTab] = useState<'pdf' | 'slides'>('pdf');
   const pptxTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -428,6 +429,16 @@ export default function PostProductionPanel({
     }
 
     setSlidesSyncing(true);
+    
+    // Google Slides auto-saves changes asynchronously. We introduce a 7-second countdown
+    // to give Google Drive enough time to persist the latest changes before exporting the file.
+    const totalDelaySeconds = 7;
+    for (let sec = totalDelaySeconds; sec > 0; sec--) {
+      setSyncDelayRemaining(sec);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+    setSyncDelayRemaining(0);
+
     try {
       toast.info('Syncing Google Slides changes and exporting to PDF (may take ~10-15s)...');
       const result = await syncSlidesToPdf({
@@ -1044,7 +1055,11 @@ export default function PostProductionPanel({
                     className="h-8 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium px-3"
                   >
                     {slidesSyncing ? (
-                      <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Syncing Slides...</>
+                      syncDelayRemaining > 0 ? (
+                        <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Auto-saving edits ({syncDelayRemaining}s)...</>
+                      ) : (
+                        <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Syncing Slides...</>
+                      )
                     ) : (
                       <><RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Sync Slides & Update PDF</>
                     )}

@@ -1102,7 +1102,6 @@ def sync_slides_to_pdf(report_id: str, ppt_file_id: str) -> dict:
     and updates research_reports.pptx_pdf_file_url.
     """
     import requests
-    import time
     import os
     import tempfile
     from pathlib import Path
