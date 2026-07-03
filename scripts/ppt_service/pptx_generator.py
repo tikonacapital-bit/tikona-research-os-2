@@ -2014,11 +2014,6 @@ def _fill_table_from_model(table, table_key: str, fin_model: dict) -> None:
 
 
 def _get_fallback_font(font_name: str | None) -> str | None:
-    if not font_name:
-        return None
-    import platform
-    if platform.system() != "Windows" and "calibri" in font_name.lower():
-        return "Arial"
     return font_name
 
 
