@@ -533,9 +533,10 @@ export async function deleteDocument(fileId: string): Promise<void> {
 export async function uploadDocument(
   folderId: string,
   fileName: string,
-  fileBase64: string
+  fileBase64: string,
+  subfolderName?: string
 ): Promise<VaultDocument> {
-  console.log('[API] Uploading document:', { folderId, fileName });
+  console.log('[API] Uploading document:', { folderId, fileName, subfolderName });
 
   const response = await fetch(`${N8N_BASE_URL}/webhook/upload-document`, {
     method: 'POST',
@@ -544,6 +545,7 @@ export async function uploadDocument(
       folder_id: folderId,
       file_name: fileName,
       file_base64: fileBase64,
+      subfolder_name: subfolderName,
     }),
   });
 

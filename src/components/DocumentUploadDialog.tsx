@@ -171,7 +171,18 @@ export default function DocumentUploadDialog({
       // Use original filename as-is (no renaming)
       const fileName = selectedFile.name;
 
-      const uploadedDoc = await uploadDocument(folderId, fileName, base64);
+      // Map UI category to the standardized subfolder name in Google Drive
+      const categoryToSubfolderMap: Record<string, string> = {
+        annual_report: 'Annual Report',
+        investor_presentation: 'Investor PPT',
+        concall_transcript: 'Concall Transcript',
+        broker_report: 'Broker Report',
+        financial_model: 'Financial Model',
+        other: 'Other Document',
+      };
+      const subfolderName = categoryToSubfolderMap[category] || 'Other Document';
+
+      const uploadedDoc = await uploadDocument(folderId, fileName, base64, subfolderName);
 
       if (category === 'financial_model' && onFinancialModelFileUploaded) {
         await onFinancialModelFileUploaded(selectedFile);

@@ -1052,7 +1052,7 @@ def _upload(client, local: Path, key: str, content_type: str) -> tuple[str, str]
     return key, _strip_qmark(public)
 
 
-def _upload_to_gdrive(local_path: Path, filename: str, folder_id: str) -> dict | None:
+def _upload_to_gdrive(local_path: Path, filename: str, folder_id: str, subfolder_name: str = None) -> dict | None:
     """Uploads file to Google Drive via n8n webhook upload-document."""
     import base64
     import requests
@@ -1072,6 +1072,8 @@ def _upload_to_gdrive(local_path: Path, filename: str, folder_id: str) -> dict |
             "file_name": filename,
             "file_base64": file_base64
         }
+        if subfolder_name:
+            payload["subfolder_name"] = subfolder_name
         
         logger.info("Uploading %s to Google Drive folder %s", filename, folder_id)
         res = requests.post(url, json=payload, timeout=60)
@@ -5398,7 +5400,7 @@ def generate_pptx_for_report(report_id: str, session_id: str, *, use_mock: bool 
         drive_file_id = None
         drive_file_url = None
         if vault_folder_id:
-            gdrive_res = _upload_to_gdrive(Path(result_pptx_path), f"{ticker}_Report_{ts}.pptx", vault_folder_id)
+            gdrive_res = _upload_to_gdrive(Path(result_pptx_path), f"{ticker}_Report_{ts}.pptx", vault_folder_id, "Research Report")
             if gdrive_res:
                 drive_file_id = gdrive_res.get("id")
                 drive_file_url = gdrive_res.get("url")

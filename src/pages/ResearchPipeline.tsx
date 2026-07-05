@@ -521,7 +521,8 @@ export default function ResearchPipeline() {
               const uploadedDoc = await uploadDocument(
                 vaultId, 
                 modelResult.fileName || `${selectedCompany.nse_symbol}_Model.xlsx`, 
-                base64data
+                base64data,
+                "Financial Model"
               );
               setVaultDocuments(prev => [...prev, uploadedDoc]);
               toast.success('Model added to Vault');
@@ -564,7 +565,7 @@ export default function ResearchPipeline() {
         setVaultDocuments((prev) => prev.filter((d) => d.id !== existingDoc.id));
       }
       const base64 = await fileToBase64(file);
-      const uploadedDoc = await uploadDocument(vaultId, fileName, base64);
+      const uploadedDoc = await uploadDocument(vaultId, fileName, base64, "Financial Model");
       setVaultDocuments((prev) => [...prev, uploadedDoc]);
     } catch (err) {
       console.error('Failed to mirror financial model to Drive vault:', err);
