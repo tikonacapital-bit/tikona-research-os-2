@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
@@ -153,6 +154,10 @@ export default function ResearchPipeline() {
   const [isReplacingFinancialModel, setIsReplacingFinancialModel] = useState(false);
   const financialModelFileInputRef = useRef<HTMLInputElement>(null);
 
+  // --- Financial Model Timer ---
+  const [fmElapsedSeconds, setFmElapsedSeconds] = useState(0);
+  const fmTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // --- Pipeline Stage State ---
   const [pipelineStatus, setPipelineStatus] = useState<PipelineStatus>('company_selected');
   const [isRunning, setIsRunning] = useState(false);
@@ -201,6 +206,13 @@ export default function ResearchPipeline() {
     const timer = setTimeout(() => setDebouncedSearch(searchInput), 300);
     return () => clearTimeout(timer);
   }, [searchInput]);
+
+  // Clean up financial model timer on unmount
+  useEffect(() => {
+    return () => {
+      if (fmTimerRef.current) clearInterval(fmTimerRef.current);
+    };
+  }, []);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -487,6 +499,13 @@ export default function ResearchPipeline() {
       setPipelineStatus('financial_model_generating');
       setFinancialModelStatus('generating');
 
+      // Start generation timer
+      setFmElapsedSeconds(0);
+      if (fmTimerRef.current) clearInterval(fmTimerRef.current);
+      fmTimerRef.current = setInterval(() => {
+        setFmElapsedSeconds((prev) => prev + 1);
+      }, 1000);
+
       toast.info('Generating financial model — this takes ~10 min...');
       const modelResult = await generateFinancialModel(
         selectedCompany.nse_symbol ?? '',
@@ -545,6 +564,11 @@ export default function ResearchPipeline() {
       setFinancialModelStatus('idle');
       try { await transitionPipelineStatus(sessionId, 'vault_ready', 'financial_model_generating'); } catch { /* ignore */ }
       setPipelineStatus('vault_ready');
+    } finally {
+      if (fmTimerRef.current) {
+        clearInterval(fmTimerRef.current);
+        fmTimerRef.current = null;
+      }
     }
   };
 
@@ -1026,8 +1050,25 @@ export default function ResearchPipeline() {
     setSectorFramework(null);
     setStage1Thesis('');
     setStage2Sections([]);
-    setFinancialModelStatus('idle');
   };
+
+  // --- Financial Model Loading Helpers ---
+  const getFmPhaseLabel = (seconds: number): string => {
+    if (seconds < 60) return "Initializing agent and fetching company details...";
+    if (seconds < 180) return "Extracting historical balance sheets & P&L statements...";
+    if (seconds < 300) return "Constructing forecast assumptions & projecting metrics...";
+    if (seconds < 420) return "Performing valuation calculations (DCF, Peer Multiples)...";
+    if (seconds < 540) return "Formatting Excel worksheets & generating charts...";
+    return "Finalizing assets & preparing upload to Drive Vault...";
+  };
+
+  const formatFmTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const fmProgressPct = Math.min(99, Math.floor((fmElapsedSeconds / 600) * 100));
 
   // Computed
   const currentStage = getStageNumber(pipelineStatus);
@@ -1418,14 +1459,44 @@ export default function ResearchPipeline() {
                       </div>
                     )}
 
-                    {/* Financial Model generating spinner */}
+                    {/* Financial Model generating animation */}
                     {financialModelStatus === 'generating' && (
-                      <div className="mb-3 flex items-center gap-3 rounded-lg bg-neutral-50 border border-neutral-200 px-4 py-3">
-                        <Spinner size="sm" className="shrink-0" />
-                        <div>
-                          <p className="text-xs font-medium text-neutral-700">Generating financial model...</p>
-                          <p className="text-xs text-neutral-400 mt-1">This takes ~10 minutes. You can leave this tab open.</p>
+                      <div className="mb-4 rounded-xl border border-neutral-800 bg-gradient-to-br from-neutral-900 via-neutral-900 to-neutral-950 p-4 shadow-xl relative overflow-hidden text-white">
+                        {/* Background light glow */}
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-accent-500/10 rounded-full blur-3xl pointer-events-none" />
+                        
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <BarChart3 className="h-4 w-4 text-accent-400 animate-pulse" />
+                            <span className="text-xs font-semibold tracking-wide uppercase text-neutral-300">Financial Analyst Engine</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-neutral-800 border border-neutral-700 text-[10px] font-mono text-neutral-300">
+                            <Clock className="h-3.5 w-3.5 animate-spin text-accent-400" />
+                            <span>{formatFmTime(fmElapsedSeconds)}</span>
+                          </div>
                         </div>
+
+                        <div className="space-y-1">
+                          <p className="text-xs font-medium text-neutral-100 transition-all duration-300">
+                            {getFmPhaseLabel(fmElapsedSeconds)}
+                          </p>
+                          <div className="flex items-center justify-between text-[11px] text-neutral-400">
+                            <span>Processing mathematical projection chains...</span>
+                            <span className="font-mono font-medium text-accent-400">{fmProgressPct}%</span>
+                          </div>
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div className="w-full h-1.5 bg-neutral-800 rounded-full mt-3 overflow-hidden">
+                          <div 
+                            className="h-full rounded-full bg-gradient-to-r from-accent-500 to-emerald-500 transition-all duration-1000 ease-out"
+                            style={{ width: `${fmProgressPct}%` }}
+                          />
+                        </div>
+
+                        <p className="text-[10px] text-neutral-500 mt-2.5">
+                          Calculations take ~10 minutes. You can safely leave this tab open or work in the background.
+                        </p>
                       </div>
                     )}
 
@@ -1503,7 +1574,9 @@ export default function ResearchPipeline() {
 
                       {/* After model done — show start research button */}
                       {pipelineStatus === 'vault_ready' && financialModelStatus === 'generating' && (
-                        <p className="text-xs text-neutral-400 italic">Model generating...</p>
+                        <span className="text-xs text-accent-500 flex items-center gap-1.5 font-medium animate-pulse">
+                          <Loader2 className="h-3 w-3 animate-spin" /> Engine active
+                        </span>
                       )}
 
                       {/* Stage already past vault_ready */}
