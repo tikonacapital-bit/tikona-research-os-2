@@ -627,17 +627,17 @@ class Assumptions(BaseModel):
 
 class Projections(BaseModel):
     years: list[str]
-    net_block: list[float]
-    cwip: list[float]
-    investments: list[float]
-    other_assets: list[float]
-    share_capital: list[float]
-    reserves: list[float]
-    borrowings: list[float]
-    other_liabilities: list[float]
-    cfo: list[float]
-    cfi: list[float]
-    cff: list[float]
+    net_block: list[Optional[float]]
+    cwip: list[Optional[float]]
+    investments: list[Optional[float]]
+    other_assets: list[Optional[float]]
+    share_capital: list[Optional[float]]
+    reserves: list[Optional[float]]
+    borrowings: list[Optional[float]]
+    other_liabilities: list[Optional[float]]
+    cfo: list[Optional[float]]
+    cfi: list[Optional[float]]
+    cff: list[Optional[float]]
 
 
 class HistoricalRatios(BaseModel):
@@ -1255,8 +1255,8 @@ STEP 9 — STRUCTURED ANALYTICAL DATA (web search aggressively for these — the
   - Services/SaaS: Headcount, Active Clients, Billable Utilisation %, Revenue/Employee.
   - BFSI: Loan Book (AUM), Net Interest Margin %, GNPA/NNPA %, CASA Ratio %, Cost-to-Income.
   - Retail/Consumer: Store Count, Same-Store Sales Growth %, Ticket Size, Rev/Sq Ft.
-- revenue_mix_pct: dict mapping key business segments/products to current % share (summing to 1.0, e.g. {"Segment A": 0.6, "Segment B": 0.4})
-- geography_mix_pct: dict mapping regions/countries to current % share of revenue (summing to 1.0, e.g. {"India": 0.8, "Overseas": 0.2})
+- revenue_mix_pct: dict mapping key business segments/products to current % share (summing to 1.0, e.g. {{"Segment A": 0.6, "Segment B": 0.4}})
+- geography_mix_pct: dict mapping regions/countries to current % share of revenue (summing to 1.0, e.g. {{"India": 0.8, "Overseas": 0.2}})
 
 (b) governance — REAL data from BSE/NSE filings or company AR:
 - board: list of {{name, designation, status (Promoter Executive|Independent|Nominee), din, since (year)}}
