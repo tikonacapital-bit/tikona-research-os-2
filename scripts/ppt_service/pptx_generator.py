@@ -1053,30 +1053,42 @@ def _upload(client, local: Path, key: str, content_type: str) -> tuple[str, str]
 
 
 def _upload_to_gdrive(local_path: Path, filename: str, folder_id: str, subfolder_name: str = None) -> dict | None:
-    """Uploads file to Google Drive via n8n webhook upload-document."""
+    """Uploads file to Google Drive via n8n webhook upload-document.
+
+    Tries the requested subfolder first; if that call fails outright, retries
+    once uploading directly into the company folder root so the file still
+    lands in the vault even when the subfolder can't be created.
+    """
     import base64
     import requests
     import os
-    
-    # n8n webhook URL
+
     n8n_base = os.environ.get("N8N_BASE_URL") or "https://n8n.tikonacapital.com/webhook"
     url = f"{n8n_base.rstrip('/')}/upload-document"
-    
+
     try:
         with open(local_path, "rb") as fh:
             file_bytes = fh.read()
         file_base64 = base64.b64encode(file_bytes).decode("utf-8")
-        
+    except Exception as e:
+        logger.error("Error reading file for Google Drive upload: %s", e)
+        return None
+
+    def _post(target_subfolder: str | None) -> dict | None:
         payload = {
             "folder_id": folder_id,
             "file_name": filename,
             "file_base64": file_base64
         }
-        if subfolder_name:
-            payload["subfolder_name"] = subfolder_name
-        
-        logger.info("Uploading %s to Google Drive folder %s", filename, folder_id)
-        res = requests.post(url, json=payload, timeout=60)
+        if target_subfolder:
+            payload["subfolder_name"] = target_subfolder
+
+        logger.info("Uploading %s to Google Drive folder %s (subfolder=%s)", filename, folder_id, target_subfolder)
+        try:
+            res = requests.post(url, json=payload, timeout=60)
+        except Exception as e:
+            logger.error("Error uploading to Google Drive (subfolder=%s): %s", target_subfolder, e)
+            return None
         if res.status_code == 200:
             data = res.json()
             # Normalize response format from n8n
@@ -1091,10 +1103,17 @@ def _upload_to_gdrive(local_path: Path, filename: str, folder_id: str, subfolder
                     "id": file_id,
                     "url": slides_url
                 }
-        logger.warning("Upload to Google Drive failed: %s %s", res.status_code, res.text)
-    except Exception as e:
-        logger.error("Error uploading to Google Drive: %s", e)
-    return None
+        logger.warning("Upload to Google Drive failed (subfolder=%s): %s %s", target_subfolder, res.status_code, res.text)
+        return None
+
+    result = _post(subfolder_name) if subfolder_name else None
+    if result is None and subfolder_name:
+        logger.warning("Retrying Drive upload directly into company folder (no subfolder)...")
+        result = _post(None)
+    elif result is None:
+        result = _post(None)
+
+    return result
 
 
 def sync_slides_to_pdf(report_id: str, ppt_file_id: str) -> dict:

@@ -58,7 +58,7 @@ class GenerateRequest(BaseModel):
     nse_symbol: str
     company_name: str
     sector: str
-    folder_id: str | None = None  # Optional — for reference only
+    folder_id: str | None = None  # Google Drive company vault folder — model xlsx is mirrored here
 
 
 class GenerateResponse(BaseModel):
@@ -69,6 +69,8 @@ class GenerateResponse(BaseModel):
     storage_url: str | None = None
     json_storage_path: str | None = None
     json_storage_url: str | None = None
+    file_id: str | None = None
+    file_url: str | None = None
     message: str | None = None
     duration_seconds: int | None = None
 
@@ -83,6 +85,8 @@ class JobStatus(BaseModel):
     storage_url: str | None = None
     json_storage_path: str | None = None
     json_storage_url: str | None = None
+    file_id: str | None = None
+    file_url: str | None = None
     message: str | None = None
     duration_seconds: int | None = None
 
@@ -174,6 +178,59 @@ def upload_model_to_supabase(file_path: str, ticker: str) -> dict[str, str | Non
     }
 
 
+def upload_model_to_gdrive(file_path: str, ticker: str, folder_id: str | None) -> dict[str, str | None]:
+    """Mirror the generated xlsx into the company's Google Drive vault folder
+    (same n8n /upload-document webhook used by the PPTX pipeline), into a
+    "Financial Model" subfolder. Falls back to uploading straight into the
+    company folder if the subfolder-aware call fails. Never raises — a Drive
+    upload failure must not fail the overall generation, since the model is
+    already safely in Supabase Storage by the time this runs.
+    """
+    if not folder_id:
+        return {"file_id": None, "file_url": None}
+
+    import base64
+
+    n8n_base = os.environ.get("N8N_BASE_URL") or "https://n8n.tikonacapital.com/webhook"
+    url = f"{n8n_base.rstrip('/')}/upload-document"
+    file_name = f"{ticker.upper()}_model.xlsx"
+
+    with open(file_path, "rb") as fh:
+        file_base64 = base64.b64encode(fh.read()).decode("utf-8")
+
+    def _post(subfolder_name: str | None) -> dict[str, str | None] | None:
+        payload = {"folder_id": folder_id, "file_name": file_name, "file_base64": file_base64}
+        if subfolder_name:
+            payload["subfolder_name"] = subfolder_name
+        try:
+            res = requests.post(url, json=payload, timeout=60)
+        except Exception as e:  # noqa: BLE001
+            print(f"  Drive upload error (subfolder={subfolder_name}): {e}")
+            return None
+        if res.status_code != 200:
+            print(f"  Drive upload failed (subfolder={subfolder_name}): {res.status_code} {res.text[:200]}")
+            return None
+        data = res.json()
+        if data.get("status") != "success" and "file" not in data and "id" not in data:
+            print(f"  Drive upload unexpected response (subfolder={subfolder_name}): {data}")
+            return None
+        file_info = data.get("file", data)
+        if isinstance(file_info, list) and file_info:
+            file_info = file_info[0]
+        file_id = file_info.get("id")
+        file_url = file_info.get("webViewLink") or (
+            f"https://drive.google.com/file/d/{file_id}/view" if file_id else None
+        )
+        return {"file_id": file_id, "file_url": file_url}
+
+    result = _post("Financial Model")
+    if result is None:
+        print("  Retrying Drive upload directly into company folder (no subfolder)...")
+        result = _post(None)
+
+    return result or {"file_id": None, "file_url": None}
+
+
 # ========================
 # Synchronous Generation (n8n calls this with long timeout)
 # ========================
@@ -227,6 +284,7 @@ def generate_sync(req: GenerateRequest):
             shutil.copy2(json_src, final_json)
 
         storage_result = upload_model_to_supabase(file_path, ticker)
+        gdrive_result = upload_model_to_gdrive(file_path, ticker, req.folder_id)
 
         return GenerateResponse(
             status="success",
@@ -236,6 +294,8 @@ def generate_sync(req: GenerateRequest):
             storage_url=storage_result["storage_url"],
             json_storage_path=storage_result["json_storage_path"],
             json_storage_url=storage_result["json_storage_url"],
+            file_id=gdrive_result["file_id"],
+            file_url=gdrive_result["file_url"],
             duration_seconds=int(time.time() - start),
             message=(
                 f"rating={result.get('rating')} target={result.get('target_price')} "
@@ -321,6 +381,7 @@ def _run_generation(job_id: str, req: GenerateRequest):
             shutil.copy2(json_src, final_json)
 
         storage_result = upload_model_to_supabase(file_path, ticker)
+        gdrive_result = upload_model_to_gdrive(file_path, ticker, req.folder_id)
 
         jobs[job_id] = {
             "status": "completed",
@@ -330,6 +391,8 @@ def _run_generation(job_id: str, req: GenerateRequest):
             "storage_url": storage_result["storage_url"],
             "json_storage_path": storage_result["json_storage_path"],
             "json_storage_url": storage_result["json_storage_url"],
+            "file_id": gdrive_result["file_id"],
+            "file_url": gdrive_result["file_url"],
             "duration_seconds": int(time.time() - start),
             "rating": result.get("rating"),
             "target_price": result.get("target_price"),
