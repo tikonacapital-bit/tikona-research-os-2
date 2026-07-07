@@ -35,13 +35,17 @@ const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 const EXCEL_MIME_TYPES = [
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.ms-excel',
+  'application/vnd.ms-excel.sheet.macroEnabled.12',
 ];
 
 function isExcelFile(file: File): boolean {
-  return /\.(xlsx|xls)$/i.test(file.name) || EXCEL_MIME_TYPES.includes(file.type);
+  return /\.(xlsx|xls|xlsm)$/i.test(file.name) || EXCEL_MIME_TYPES.includes(file.type);
 }
 
 function isAllowedFile(file: File, category: string): boolean {
+  if (category === '') {
+    return isExcelFile(file) || file.type === 'application/pdf';
+  }
   return category === 'financial_model' ? isExcelFile(file) : file.type === 'application/pdf';
 }
 
@@ -116,13 +120,16 @@ export default function DocumentUploadDialog({
       }
 
       if (!isAllowedFile(file, category)) {
-        setError(category === 'financial_model' ? 'Only Excel files (.xlsx/.xls) are supported.' : 'Only PDF files are supported.');
+        setError(category === 'financial_model' ? 'Only Excel files (.xlsx/.xls/.xlsm) are supported.' : 'Only PDF files are supported.');
         return;
       }
 
       setSelectedFile(file);
+      if (category === '' && isExcelFile(file)) {
+        setCategory('financial_model');
+      }
     },
-    [category]
+    [category, setCategory]
   );
 
   const handleDrop = useCallback(
@@ -139,13 +146,16 @@ export default function DocumentUploadDialog({
       }
 
       if (!isAllowedFile(file, category)) {
-        setError(category === 'financial_model' ? 'Only Excel files (.xlsx/.xls) are supported.' : 'Only PDF files are supported.');
+        setError(category === 'financial_model' ? 'Only Excel files (.xlsx/.xls/.xlsm) are supported.' : 'Only PDF files are supported.');
         return;
       }
 
       setSelectedFile(file);
+      if (category === '' && isExcelFile(file)) {
+        setCategory('financial_model');
+      }
     },
-    [category]
+    [category, setCategory]
   );
 
   const handleUpload = useCallback(async () => {
@@ -262,7 +272,9 @@ export default function DocumentUploadDialog({
                   </p>
                   <p className="text-xs text-neutral-400 mt-1">
                     {category === 'financial_model'
-                      ? `Excel only (.xlsx/.xls), max ${MAX_FILE_SIZE_MB}MB`
+                      ? `Excel only (.xlsx/.xls/.xlsm), max ${MAX_FILE_SIZE_MB}MB`
+                      : category === ''
+                      ? `PDF or Excel, max ${MAX_FILE_SIZE_MB}MB`
                       : `PDF only, max ${MAX_FILE_SIZE_MB}MB`}
                   </p>
                 </>
@@ -272,7 +284,9 @@ export default function DocumentUploadDialog({
                 type="file"
                 accept={
                   category === 'financial_model'
-                    ? '.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel'
+                    ? '.xlsx,.xls,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/vnd.ms-excel.sheet.macroEnabled.12'
+                    : category === ''
+                    ? '.pdf,application/pdf,.xlsx,.xls,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/vnd.ms-excel.sheet.macroEnabled.12'
                     : '.pdf,application/pdf'
                 }
                 onChange={handleFileSelect}

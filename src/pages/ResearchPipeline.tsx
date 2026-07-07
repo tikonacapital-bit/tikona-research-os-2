@@ -602,8 +602,8 @@ export default function ResearchPipeline() {
     const ticker = selectedCompany?.nse_symbol;
     if (!sessionId || !ticker) return;
 
-    if (!/\.xlsx?$/i.test(file.name)) {
-      toast.error('Please select an Excel file (.xlsx or .xls)');
+    if (!/\.(xlsx|xls|xlsm)$/i.test(file.name)) {
+      toast.error('Please select an Excel file (.xlsx, .xls, or .xlsm)');
       return;
     }
 
@@ -1440,7 +1440,7 @@ export default function ResearchPipeline() {
                           <input
                             ref={financialModelFileInputRef}
                             type="file"
-                            accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                            accept=".xlsx,.xls,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/vnd.ms-excel.sheet.macroEnabled.12"
                             className="hidden"
                             onChange={(e) => {
                               const file = e.target.files?.[0];
