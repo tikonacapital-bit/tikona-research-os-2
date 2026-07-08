@@ -221,6 +221,11 @@ const EXCLUDED_KEYS = new Set([
   'key_risks_table',
 ]);
 
+// Set of keys that are actually editable in the PPT data panel
+const EDITABLE_KEYS = new Set(
+  PLACEHOLDER_GROUPS.flatMap(g => g.fields.map(f => f.key))
+);
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 interface PPTDataPanelProps {
@@ -260,10 +265,10 @@ export default function PPTDataPanel({
     setLoadError(null);
     try {
       const result = await fetchPptPlaceholders(reportId, sessionId);
-      // Filter out excluded keys
+      // Filter to only keep editable keys present in PLACEHOLDER_GROUPS
       const filtered: Record<string, string> = {};
       for (const [k, v] of Object.entries(result.placeholders)) {
-        if (!EXCLUDED_KEYS.has(k)) {
+        if (EDITABLE_KEYS.has(k)) {
           filtered[k] = v != null ? String(v) : '';
         }
       }
@@ -303,7 +308,7 @@ export default function PPTDataPanel({
       const result = await fetchPptPlaceholders(reportId, sessionId, true);
       const filtered: Record<string, string> = {};
       for (const [k, v] of Object.entries(result.placeholders)) {
-        if (!EXCLUDED_KEYS.has(k)) {
+        if (EDITABLE_KEYS.has(k)) {
           filtered[k] = v != null ? String(v) : '';
         }
       }

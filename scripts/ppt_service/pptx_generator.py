@@ -1268,6 +1268,7 @@ def _split_saarthi_framework(text: str, saarthi: dict) -> dict[str, str]:
             name = str(d.get("name") or _SAARTHI_DIMENSION_NAMES[card_key]).strip()
             score = d.get("score")
             max_score = d.get("max_score") or 15
+            evidence = (d.get("key_evidence") or d.get("assessment") or "").strip()
             fmt_score = f"{int(score)}" if score is not None and score.is_integer() else f"{score}" if score is not None else ""
             fmt_max = f"{int(max_score)}" if max_score is not None and max_score.is_integer() else f"{max_score}" if max_score is not None else ""
             score_part = f"{fmt_score}/{fmt_max}" if fmt_score else ""
@@ -1298,16 +1299,46 @@ def _synthesise_saarthi_assessment(saarthi: dict) -> str:
     return "Quality score driven by strong scalability and resilient track record."
 
 
-def _extract_score_from_text(text: str) -> tuple[float, float] | None:
-    if not text:
-        return None
-    match = re.search(r"\b(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)\b", text)
-    if match:
+def _enforce_saarthi_score_consistency(replacements: dict, saarthi: dict) -> None:
+    """Ensure that the scores written inside the text blocks of the SAARTHI cards
+    and the summary block match the canonical scores in the scorecard exactly.
+    """
+    dims = saarthi.get("dimensions") or []
+    for idx, card_key in enumerate(_SAARTHI_CARD_KEYS):
+        content_key = f"saarthi_{card_key}_content"
+        if content_key in replacements and idx < len(dims):
+            d = dims[idx]
+            score = d.get("score")
+            max_score = d.get("max_score") or 15
+            if score is not None:
+                try:
+                    score_f = float(score)
+                    max_f = float(max_score)
+                    fmt_score = f"{int(score_f)}" if score_f.is_integer() else f"{score_f}"
+                    fmt_max = f"{int(max_f)}" if max_f.is_integer() else f"{max_f}"
+                    canonical_str = f"{fmt_score}/{fmt_max}"
+                    text_val = replacements[content_key]
+                    if isinstance(text_val, str):
+                        match = re.search(r"\b\d+(?:\.\d+)?\s*/\s*\d+(?:\.\d+)?\b", text_val)
+                        if match:
+                            replacements[content_key] = text_val[:match.start()] + canonical_str + text_val[match.end():]
+                except (ValueError, TypeError):
+                    pass
+
+    total_score = saarthi.get("total_score")
+    if total_score is not None:
         try:
-            return float(match.group(1)), float(match.group(2))
+            total_f = float(total_score)
+            canonical_total_str = f"{int(total_f)}/100"
+            for sum_key in ("saarthi_summary_s16", "saarthi_summary"):
+                if sum_key in replacements:
+                    text_val = replacements[sum_key]
+                    if isinstance(text_val, str):
+                        match = re.search(r"\b\d+(?:\.\d+)?\s*/\s*100\b", text_val)
+                        if match:
+                            replacements[sum_key] = text_val[:match.start()] + canonical_total_str + text_val[match.end():]
         except (ValueError, TypeError):
             pass
-    return None
 
 
 def map_replacements(company, metadata, fin_model, sections):
@@ -1326,33 +1357,22 @@ def map_replacements(company, metadata, fin_model, sections):
     ])
     saarthi  = fin_model.get("saarthi") or {}
 
-    # Extract SAARTHI card texts and parse the scores from text to keep box values in sync
+    # Extract SAARTHI card texts
     saarthi_text = _section_by_any(sections, ["saarthi"]) or _section_value(sections, "saarthi_framework")
     saarthi_cards_text = _split_saarthi_framework(saarthi_text, saarthi)
     dims = saarthi.get("dimensions") or []
     computed_total = 0
-    has_custom_scores = False
 
     for idx, card_key in enumerate(_SAARTHI_CARD_KEYS):
-        card_content = saarthi_cards_text.get(card_key, "")
-        score_info = _extract_score_from_text(card_content)
-        if score_info:
-            score, max_score = score_info
-            has_custom_scores = True
-            if idx < len(dims):
-                dims[idx]["score"] = score
-                dims[idx]["max_score"] = max_score
-            computed_total += score
-        else:
-            if idx < len(dims):
-                existing_score = dims[idx].get("score")
-                if existing_score is not None:
-                    try:
-                        computed_total += float(existing_score)
-                    except (ValueError, TypeError):
-                        pass
+        if idx < len(dims):
+            existing_score = dims[idx].get("score")
+            if existing_score is not None:
+                try:
+                    computed_total += float(existing_score)
+                except (ValueError, TypeError):
+                    pass
 
-    if has_custom_scores or dims:
+    if dims:
         saarthi["total_score"] = int(round(computed_total))
 
     thesis_bullets = _bullets_from_text(thesis, limit=4)
@@ -1916,6 +1936,8 @@ def preview_ppt_placeholders(report_id: str, session_id: str, *, ignore_override
                 _sync_equivalent_keys(placeholders)
         except Exception:
             pass
+
+    _enforce_saarthi_score_consistency(placeholders, fin_model.get("saarthi") or {})
 
     return {
         "status": "success",
@@ -3285,6 +3307,8 @@ def _render_formula_sheet_table(
         if c == 1:
             return label
         if use_formula_eval:
+            if raw in (None, ""):
+                return ""
             val = _evaluate_excel_formula_cell(wb, sheet_name, cell.coordinate, cache)
             if val is None:
                 return ""
@@ -5028,6 +5052,62 @@ def _convert_pptx_to_pdf(pptx_path: Path, output_dir: Path) -> Path | None:
         return None
 
 
+def recalculate_excel_formulas(excel_path: Path) -> None:
+    """Force formula evaluation by running the workbook through headless LibreOffice Calc.
+    
+    This updates the cached formula values in-place so that subsequent openpyxl
+    loads (using data_only=True) can read computed values instead of None.
+    """
+    import subprocess
+    import shutil
+    
+    soffice_bin = shutil.which("soffice") or shutil.which("soffice.exe")
+    if not soffice_bin:
+        for win_path in [
+            r"C:\Program Files\LibreOffice\program\soffice.exe",
+            r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+        ]:
+            if os.path.exists(win_path):
+                soffice_bin = win_path
+                break
+                
+    if not soffice_bin:
+        logger.warning("LibreOffice (soffice) not found; formula recalculation skipped.")
+        return
+
+    # Move original to a subdirectory so we can convert it back to the parent directory with the correct name
+    excel_path = Path(excel_path)
+    raw_dir = excel_path.parent / "raw_input"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    raw_path = raw_dir / excel_path.name
+    try:
+        shutil.move(str(excel_path), str(raw_path))
+        cmd = [
+            soffice_bin,
+            "--headless",
+            "--convert-to", "xlsx",
+            "--outdir", str(excel_path.parent),
+            str(raw_path)
+        ]
+        logger.info("Running LibreOffice recalculation: %s", " ".join(cmd))
+        subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=True)
+        if excel_path.exists():
+            logger.info("LibreOffice formula recalculation succeeded.")
+        else:
+            logger.warning("LibreOffice completed but recalculated file not found at %s", excel_path)
+            shutil.copy2(str(raw_path), str(excel_path))
+    except Exception as exc:
+        logger.error("Failed to recalculate formulas via LibreOffice: %s", exc)
+        if raw_path.exists() and not excel_path.exists():
+            shutil.copy2(str(raw_path), str(excel_path))
+    finally:
+        if raw_dir.exists():
+            try:
+                shutil.rmtree(raw_dir)
+            except Exception:
+                pass
+
+
 def generate_pptx_for_report(report_id: str, session_id: str, *, use_mock: bool = False) -> dict:
     """Top-level orchestrator. Returns the response payload for /generate-pptx."""
     t0 = time.time()
@@ -5122,6 +5202,8 @@ def generate_pptx_for_report(report_id: str, session_id: str, *, use_mock: bool 
             except Exception as e:
                 logger.warning("Failed to parse cs_ppt_data overrides: %s", e)
 
+        _enforce_saarthi_score_consistency(replacements, fin_model.get("saarthi") or {})
+
         # Check multiple possible paths for the master template (local vs docker)
         possible_paths = [
             Path(__file__).resolve().parent.parent.parent / "master_template.pptx",  # local repo structure
@@ -5141,6 +5223,8 @@ def generate_pptx_for_report(report_id: str, session_id: str, *, use_mock: bool 
 
         result_pptx_path = str(output_root / "report.pptx")
         excel_path = _download_model_excel(client, ticker, warnings, tmp_root)
+        if excel_path and excel_path.exists():
+            recalculate_excel_formulas(excel_path)
         
         summary_image = None
         if excel_path:
