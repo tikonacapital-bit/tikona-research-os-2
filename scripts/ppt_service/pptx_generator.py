@@ -505,15 +505,22 @@ def _build_company(report: dict, session: dict, sections: list[dict]) -> dict:
     }
 
 
-def _build_metadata(report: dict, sections: list[dict]) -> dict:
+def _build_metadata(report: dict, sections: list[dict], model_json: dict | None = None) -> dict:
     narrative = _all_sections_text(sections)
-    rating_raw = _prefer(report.get("cs_rating"), _section_value(sections, "rating"), _extract_rating(narrative))
+    rating_raw = _prefer(
+        report.get("cs_rating"),
+        model_json.get("rating") if model_json else None,
+        report.get("rating"),
+        _section_value(sections, "rating"),
+        _extract_rating(narrative)
+    )
     if not rating_raw:
         rating_raw = "BUY"
     rating = _normalize_rating(rating_raw)
 
     cmp_raw = _prefer(
         report.get("cs_current_market_price"),
+        str(model_json.get("cmp")) if model_json and model_json.get("cmp") is not None else None,
         report.get("current_market_price"),
         _section_value(sections, "current_market_price"),
         _extract_labeled_number(
@@ -526,6 +533,7 @@ def _build_metadata(report: dict, sections: list[dict]) -> dict:
     )
     tp_raw = _prefer(
         report.get("cs_target_price"),
+        str(model_json.get("target_price")) if model_json and model_json.get("target_price") is not None else None,
         report.get("target_price"),
         _section_value(sections, "target_price"),
         _extract_labeled_number(
@@ -541,7 +549,19 @@ def _build_metadata(report: dict, sections: list[dict]) -> dict:
             ],
         ),
     )
-    mcap_raw = _prefer(report.get("cs_market_cap"), _section_value(sections, "market_cap"))
+    
+    model_mcap = None
+    if model_json:
+        m_cmp = model_json.get("cmp")
+        m_shares = model_json.get("shares_cr")
+        if m_cmp is not None and m_shares is not None:
+            model_mcap = str(round(float(m_cmp) * float(m_shares), 2))
+
+    mcap_raw = _prefer(
+        report.get("cs_market_cap"),
+        model_mcap,
+        _section_value(sections, "market_cap")
+    )
 
     cmp = _parse_number(cmp_raw)
     target = _parse_number(tp_raw)
@@ -1898,8 +1918,8 @@ def preview_ppt_placeholders(report_id: str, session_id: str, *, ignore_override
     ticker = (report.get("nse_symbol") or "UNKNOWN").upper()
 
     company  = _build_company(report, session, sections)
-    metadata = _build_metadata(report, sections)
     model_json = _download_model_json(client, ticker, warnings)
+    metadata = _build_metadata(report, sections, model_json=model_json)
     fin_model  = _build_financial_model(ticker, model_json, warnings)
     fin_model  = _enrich_financial_model_for_house_deck(fin_model, report, sections, metadata)
 
@@ -5120,8 +5140,8 @@ def generate_pptx_for_report(report_id: str, session_id: str, *, use_mock: bool 
     logger.info("generate_pptx start report=%s ticker=%s sections=%d", report_id, ticker, len(sections))
 
     company = _build_company(report, session, sections)
-    metadata = _build_metadata(report, sections)
     model_json = _download_model_json(client, ticker, warnings)
+    metadata = _build_metadata(report, sections, model_json=model_json)
     fin_model = _build_financial_model(ticker, model_json, warnings)
     fin_model = _enrich_financial_model_for_house_deck(fin_model, report, sections, metadata)
     md_body = _build_approved_report_md(report, sections)
