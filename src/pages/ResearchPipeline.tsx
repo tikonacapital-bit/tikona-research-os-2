@@ -150,9 +150,10 @@ export default function ResearchPipeline() {
   const [isUploadOpen, setIsUploadOpen] = useState(false);
 
   // --- Financial Model State ---
-  const [financialModelStatus, setFinancialModelStatus] = useState<'idle' | 'generating' | 'success' | 'skipped'>('idle');
+  const [financialModelStatus, setFinancialModelStatus] = useState<'idle' | 'generating' | 'unconfirmed' | 'success' | 'skipped'>('idle');
   const [financialModelFileUrl, setFinancialModelFileUrl] = useState<string | null>(null);
   const [isReplacingFinancialModel, setIsReplacingFinancialModel] = useState(false);
+  const [isConfirmingModel, setIsConfirmingModel] = useState(false);
   const financialModelFileInputRef = useRef<HTMLInputElement>(null);
 
   // --- Financial Model Timer ---
@@ -253,7 +254,7 @@ export default function ResearchPipeline() {
 
         // Restore financial model
         if (s.financial_model_file_url) {
-          setFinancialModelStatus('success');
+          setFinancialModelStatus(s.financial_model_json_url ? 'success' : 'unconfirmed');
           setFinancialModelFileUrl(s.financial_model_file_url);
         }
 
@@ -517,14 +518,15 @@ export default function ResearchPipeline() {
       const storageResult = modelResult.storageUrl
         ? { fileUrl: modelResult.storageUrl, filePath: null, jsonFileUrl: null, jsonFilePath: null }
         : await mirrorFinancialModelToStorage(selectedCompany.nse_symbol ?? '');
-      setFinancialModelStatus('success');
+      setFinancialModelStatus('unconfirmed');
       setFinancialModelFileUrl(storageResult.fileUrl);
       toast.success(`Financial model generated: ${modelResult.fileName}`);
 
       // Persist the Supabase Storage URL so downstream services can fetch it reliably.
+      // Clear any prior json_url so downstream tasks do not use stale/unconfirmed results.
       await updatePipelineOutput(sessionId, {
         financial_model_file_url: storageResult.fileUrl,
-        financial_model_json_url: storageResult.jsonFileUrl,
+        financial_model_json_url: null,
       });
 
       // Upload the generated model to the Google Drive Vault so the user can see it
@@ -614,27 +616,53 @@ export default function ResearchPipeline() {
     try {
       const { fileUrl } = await replaceFinancialModelFile(ticker, file);
 
-      // Regenerate JSON sidecar from Excel
-      toast.loading('Regenerating model JSON from updated Excel...', { id: toastId });
-      const { jsonFileUrl } = await regenerateFinancialModelJson(ticker);
-
-      setFinancialModelStatus('success');
+      setFinancialModelStatus('unconfirmed');
       setFinancialModelFileUrl(fileUrl);
       await updatePipelineOutput(sessionId, {
         financial_model_file_url: fileUrl,
-        financial_model_json_url: jsonFileUrl,
+        financial_model_json_url: null,
       });
       await mirrorFinancialModelToVault(ticker, file);
 
       const updated = await getPipelineSession(sessionId);
       if (updated) setSession(updated);
 
-      toast.success('Financial model replaced', { id: toastId });
+      toast.success('Financial model replaced. Review details and click Confirm Financial Model to finalise.', { id: toastId });
     } catch (err) {
       toast.error(`Failed to replace financial model: ${err instanceof Error ? err.message : 'Unknown error'}`, { id: toastId });
     } finally {
       setIsReplacingFinancialModel(false);
       if (financialModelFileInputRef.current) financialModelFileInputRef.current.value = '';
+    }
+  };
+
+  // --- Confirm Financial Model — recalculates Excel formulas and generates JSON sidecar ---
+  const handleConfirmFinancialModel = async () => {
+    const ticker = selectedCompany?.nse_symbol;
+    if (!sessionId || !ticker) return;
+
+    setIsConfirmingModel(true);
+    const toastId = toast.loading('Confirming financial model and generating JSON sidecar...');
+
+    try {
+      // Call regenerateFinancialModelJson on the server
+      const { jsonFileUrl } = await regenerateFinancialModelJson(ticker);
+
+      // Persist the JSON URL so downstream prompt contexts can fetch it reliably.
+      await updatePipelineOutput(sessionId, {
+        financial_model_json_url: jsonFileUrl,
+      });
+
+      setFinancialModelStatus('success');
+
+      const updated = await getPipelineSession(sessionId);
+      if (updated) setSession(updated);
+
+      toast.success('Financial model confirmed and JSON generated successfully!', { id: toastId });
+    } catch (err) {
+      toast.error(`Failed to confirm financial model: ${err instanceof Error ? err.message : 'Unknown error'}`, { id: toastId });
+    } finally {
+      setIsConfirmingModel(false);
     }
   };
 
@@ -1411,17 +1439,33 @@ export default function ResearchPipeline() {
 
                 {vaultStatus === 'success' && (
                   <>
-                    {/* Financial Model row — shown when generated */}
-                    {financialModelStatus === 'success' && financialModelFileUrl && (
-                      <div className="mb-3 flex items-center gap-3 rounded-lg bg-accent-50 border border-accent-100 px-4 py-3">
-                        <BarChart3 className="h-4 w-4 text-accent-600 shrink-0" />
-                        <span className="text-xs font-medium text-accent-800 flex-1">Financial Model — stored and ready</span>
+                    {/* Financial Model row — shown when generated or replaced */}
+                    {(financialModelStatus === 'success' || financialModelStatus === 'unconfirmed') && financialModelFileUrl && (
+                      <div className={`mb-3 flex items-center gap-3 rounded-lg px-4 py-3 border ${
+                        financialModelStatus === 'success'
+                          ? 'bg-accent-50 border-accent-100'
+                          : 'bg-amber-50/70 border-amber-200'
+                      }`}>
+                        <BarChart3 className={`h-4 w-4 shrink-0 ${
+                          financialModelStatus === 'success' ? 'text-accent-600' : 'text-amber-500'
+                        }`} />
+                        <span className={`text-xs font-medium flex-1 ${
+                          financialModelStatus === 'success' ? 'text-accent-800' : 'text-amber-800'
+                        }`}>
+                          {financialModelStatus === 'success'
+                            ? 'Financial Model — confirmed & ready'
+                            : 'Financial Model — pending confirmation (review excel & confirm below)'}
+                        </span>
                         <div className="flex items-center gap-3">
                           <a
                             href={`https://docs.google.com/viewer?url=${encodeURIComponent(financialModelFileUrl)}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-xs text-accent-600 hover:text-accent-700 font-medium flex items-center gap-1 border-r border-accent-100 pr-3"
+                            className={`text-xs hover:underline font-medium flex items-center gap-1 border-r pr-3 ${
+                              financialModelStatus === 'success'
+                                ? 'text-accent-600 border-accent-100'
+                                : 'text-amber-700 border-amber-200'
+                            }`}
                           >
                             View <Eye className="h-3 w-3" />
                           </a>
@@ -1429,7 +1473,11 @@ export default function ResearchPipeline() {
                             href={financialModelFileUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-xs text-accent-600 hover:text-accent-700 font-medium flex items-center gap-1 border-r border-accent-100 pr-3"
+                            className={`text-xs hover:underline font-medium flex items-center gap-1 border-r pr-3 ${
+                              financialModelStatus === 'success'
+                                ? 'text-accent-600 border-accent-100'
+                                : 'text-amber-700 border-amber-200'
+                            }`}
                           >
                             Download <Download className="h-3 w-3" />
                           </a>
@@ -1437,7 +1485,11 @@ export default function ResearchPipeline() {
                             type="button"
                             onClick={() => financialModelFileInputRef.current?.click()}
                             disabled={isReplacingFinancialModel}
-                            className="text-xs text-accent-600 hover:text-accent-700 font-medium flex items-center gap-1 disabled:opacity-50 border-r border-accent-100 pr-3"
+                            className={`text-xs hover:underline font-medium flex items-center gap-1 disabled:opacity-50 border-r pr-3 ${
+                              financialModelStatus === 'success'
+                                ? 'text-accent-600 border-accent-100'
+                                : 'text-amber-700 border-amber-200'
+                            }`}
                           >
                             {isReplacingFinancialModel ? (
                               <>Replacing... <Loader2 className="h-3 w-3 animate-spin" /></>
@@ -1459,7 +1511,7 @@ export default function ResearchPipeline() {
                             type="button"
                             onClick={handleDeleteFinancialModel}
                             disabled={isReplacingFinancialModel}
-                            className="text-xs text-red-500 hover:text-red-600 font-medium flex items-center gap-1 disabled:opacity-50"
+                            className="text-xs text-red-500 hover:text-red-600 hover:underline font-medium flex items-center gap-1 disabled:opacity-50"
                           >
                             Delete <Trash2 className="h-3 w-3" />
                           </button>
@@ -1545,7 +1597,7 @@ export default function ResearchPipeline() {
                             className="rounded-lg text-xs border-accent-200 text-accent-700 hover:bg-accent-50"
                           >
                             <BarChart3 className="h-3.5 w-3.5 mr-2" />
-                            {financialModelStatus === 'success' ? 'Regenerate Financial Model' : 'Generate Financial Model'}
+                            {(financialModelStatus === 'success' || financialModelStatus === 'unconfirmed') ? 'Regenerate Financial Model' : 'Generate Financial Model'}
                           </Button>
                           
                           {pipelineStatus === 'vault_ready' && (
@@ -1564,19 +1616,40 @@ export default function ResearchPipeline() {
                       {/* Two options at vault_ready */}
                       {pipelineStatus === 'vault_ready' && financialModelStatus !== 'generating' && (
                         <div className="flex items-center gap-2">
-                          <Button
-                            onClick={financialModelStatus === 'success' || financialModelStatus === 'skipped'
-                              ? () => handleRunStage0()
-                              : handleSkipFinancialModel}
-                            disabled={isRunning}
-                            size="sm"
-                            className="rounded-lg bg-accent-600 hover:bg-accent-700 text-xs"
-                          >
-                            <Zap className="h-3.5 w-3.5 mr-2" />
-                            {financialModelStatus === 'success' || financialModelStatus === 'skipped'
-                              ? 'Generate Sector Framework'
-                              : 'Skip & Start Research'}
-                          </Button>
+                          {financialModelStatus === 'unconfirmed' ? (
+                            <Button
+                              onClick={handleConfirmFinancialModel}
+                              disabled={isConfirmingModel}
+                              size="sm"
+                              className="rounded-lg bg-emerald-600 hover:bg-emerald-700 text-xs text-white"
+                            >
+                              {isConfirmingModel ? (
+                                <>
+                                  <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />
+                                  Confirming...
+                                </>
+                              ) : (
+                                <>
+                                  <Check className="h-3.5 w-3.5 mr-2" />
+                                  Confirm Financial Model
+                                </>
+                              )}
+                            </Button>
+                          ) : (
+                            <Button
+                              onClick={financialModelStatus === 'success' || financialModelStatus === 'skipped'
+                                ? () => handleRunStage0()
+                                : handleSkipFinancialModel}
+                              disabled={isRunning}
+                              size="sm"
+                              className="rounded-lg bg-accent-600 hover:bg-accent-700 text-xs"
+                            >
+                              <Zap className="h-3.5 w-3.5 mr-2" />
+                              {financialModelStatus === 'success' || financialModelStatus === 'skipped'
+                                ? 'Generate Sector Framework'
+                                : 'Skip & Start Research'}
+                            </Button>
+                          )}
                         </div>
                       )}
 

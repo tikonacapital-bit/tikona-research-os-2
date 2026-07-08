@@ -203,23 +203,7 @@ const PLACEHOLDER_GROUPS: GroupDef[] = [
   },
 ];
 
-// These are filled from Excel/financial model — excluded from this panel
-const EXCLUDED_KEYS = new Set([
-  'financial_summary_image',
-  'financial_model_from_excel',
-  'financial_model_from_excel_operational_sheet',
-  'timeline',
-  'competitive_chart_1',
-  'competitive_chart_2',
-  'pie_chart_1',
-  'pie_chart_2',
-  'governance_table',
-  'earnings_forecast_table',
-  'financials_table',
-  'valuations_table',
-  'probability_weight_table',
-  'key_risks_table',
-]);
+
 
 // Set of keys that are actually editable in the PPT data panel
 const EDITABLE_KEYS = new Set(
