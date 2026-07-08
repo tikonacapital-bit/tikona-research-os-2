@@ -35,6 +35,7 @@ import {
   generateFinancialModel,
   mirrorFinancialModelToStorage,
   replaceFinancialModelFile,
+  regenerateFinancialModelJson,
   deleteFinancialModelFile,
   unpublishReport,
   getReportBySession,
@@ -613,9 +614,16 @@ export default function ResearchPipeline() {
     try {
       const { fileUrl } = await replaceFinancialModelFile(ticker, file);
 
+      // Regenerate JSON sidecar from Excel
+      toast.loading('Regenerating model JSON from updated Excel...', { id: toastId });
+      const { jsonFileUrl } = await regenerateFinancialModelJson(ticker);
+
       setFinancialModelStatus('success');
       setFinancialModelFileUrl(fileUrl);
-      await updatePipelineOutput(sessionId, { financial_model_file_url: fileUrl });
+      await updatePipelineOutput(sessionId, {
+        financial_model_file_url: fileUrl,
+        financial_model_json_url: jsonFileUrl,
+      });
       await mirrorFinancialModelToVault(ticker, file);
 
       const updated = await getPipelineSession(sessionId);

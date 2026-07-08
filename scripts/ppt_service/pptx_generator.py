@@ -505,6 +505,19 @@ def _build_company(report: dict, session: dict, sections: list[dict]) -> dict:
     }
 
 
+def _fetch_realtime_cmp(ticker: str) -> float | None:
+    """Get live CMP from yfinance — always fresh."""
+    try:
+        import yfinance as yf
+        info = yf.Ticker(f"{ticker}.NS").info
+        price = info.get("currentPrice")
+        if price:
+            return float(price)
+    except Exception as e:
+        logger.warning("yfinance real-time CMP fetch failed for %s: %s", ticker, e)
+    return None
+
+
 def _build_metadata(report: dict, sections: list[dict], model_json: dict | None = None) -> dict:
     narrative = _all_sections_text(sections)
     rating_raw = _prefer(
@@ -518,8 +531,12 @@ def _build_metadata(report: dict, sections: list[dict], model_json: dict | None 
         rating_raw = "BUY"
     rating = _normalize_rating(rating_raw)
 
+    ticker = (report.get("nse_symbol") or "UNKNOWN").upper()
+    live_cmp = _fetch_realtime_cmp(ticker)
+
     cmp_raw = _prefer(
         report.get("cs_current_market_price"),
+        str(live_cmp) if live_cmp is not None else None,
         str(model_json.get("cmp")) if model_json and model_json.get("cmp") is not None else None,
         report.get("current_market_price"),
         _section_value(sections, "current_market_price"),
@@ -551,11 +568,11 @@ def _build_metadata(report: dict, sections: list[dict], model_json: dict | None 
     )
     
     model_mcap = None
+    active_cmp = live_cmp or (float(model_json.get("cmp")) if model_json and model_json.get("cmp") is not None else None)
     if model_json:
-        m_cmp = model_json.get("cmp")
         m_shares = model_json.get("shares_cr")
-        if m_cmp is not None and m_shares is not None:
-            model_mcap = str(round(float(m_cmp) * float(m_shares), 2))
+        if active_cmp is not None and m_shares is not None:
+            model_mcap = str(round(float(active_cmp) * float(m_shares), 2))
 
     mcap_raw = _prefer(
         report.get("cs_market_cap"),

@@ -663,6 +663,341 @@ def sync_screener(ticker: str):
         return {"status": "error", "message": str(e)}
 
 
+@app.post("/regenerate-json/{ticker}")
+def regenerate_json(ticker: str):
+    """
+    Recalculates the formulas of the user-modified Excel model on Supabase Storage
+    via LibreOffice Calc, then parses and updates the corresponding JSON sidecar,
+    fetching live CMP from yfinance, and uploads both back to Supabase Storage.
+    """
+    ticker = ticker.strip().upper()
+    print(f"[/regenerate-json] Received request for ticker: {ticker}")
+    if not ticker:
+        return JSONResponse(status_code=400, content={"status": "error", "message": "Ticker is empty"})
+
+    import json
+    import uuid
+    import shutil
+    import subprocess
+    from pathlib import Path
+    import openpyxl
+    from openpyxl.utils import get_column_letter
+    import yfinance as yf
+
+    temp_id = str(uuid.uuid4())
+    temp_dir = os.path.join(OUTPUT_DIR, f"regen_{temp_id}")
+    os.makedirs(temp_dir, exist_ok=True)
+    excel_path = os.path.join(temp_dir, f"{ticker}_model.xlsx")
+    json_path = os.path.join(temp_dir, f"{ticker}_model.json")
+
+    try:
+        # 1. Download current files from Supabase
+        xlsx_url = f"{SUPABASE_URL}/storage/v1/object/{MODEL_STORAGE_BUCKET}/financial-models/{ticker}/{ticker}_model.xlsx"
+        json_url = f"{SUPABASE_URL}/storage/v1/object/{MODEL_STORAGE_BUCKET}/financial-models/{ticker}/{ticker}_model.json"
+        
+        headers = {
+            "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+            "apikey": SUPABASE_SERVICE_KEY,
+        }
+        
+        print(f"Downloading Excel from {xlsx_url}...")
+        r_xlsx = requests.get(xlsx_url, headers=headers, timeout=60)
+        if r_xlsx.status_code >= 400:
+            return JSONResponse(status_code=400, content={"status": "error", "message": f"Failed to download Excel from Supabase: {r_xlsx.status_code}"})
+        with open(excel_path, "wb") as f:
+            f.write(r_xlsx.content)
+
+        print(f"Downloading JSON from {json_url}...")
+        r_json = requests.get(json_url, headers=headers, timeout=60)
+        model_json = {}
+        if r_json.status_code < 400:
+            try:
+                model_json = json.loads(r_json.content.decode("utf-8"))
+            except Exception as e:
+                print(f"Error parsing existing JSON: {e}")
+
+        # 2. Run LibreOffice calculation on excel_path
+        soffice_bin = shutil.which("soffice") or shutil.which("soffice.exe")
+        if not soffice_bin:
+            for win_path in [
+                r"C:\Program Files\LibreOffice\program\soffice.exe",
+                r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+            ]:
+                if os.path.exists(win_path):
+                    soffice_bin = win_path
+                    break
+
+        if not soffice_bin:
+            print("LibreOffice (soffice) not found; formula recalculation skipped.")
+        else:
+            excel_path_p = Path(excel_path)
+            raw_dir = excel_path_p.parent / "raw_input"
+            raw_dir.mkdir(parents=True, exist_ok=True)
+            raw_path = raw_dir / excel_path_p.name
+            try:
+                shutil.move(str(excel_path), str(raw_path))
+                cmd = [
+                    soffice_bin,
+                    "--headless",
+                    "--convert-to", "xlsx",
+                    "--outdir", str(excel_path_p.parent),
+                    str(raw_path)
+                ]
+                print("Running LibreOffice recalculation:", " ".join(cmd))
+                subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=True)
+            except Exception as exc:
+                print("Failed to recalculate formulas via LibreOffice:", exc)
+                if raw_path.exists() and not excel_path_p.exists():
+                    shutil.copy2(str(raw_path), str(excel_path_p))
+            finally:
+                if raw_dir.exists():
+                    try:
+                        shutil.rmtree(raw_dir)
+                    except Exception:
+                        pass
+
+        # 3. Load Excel and update model_json fields
+        wb = openpyxl.load_workbook(excel_path, data_only=True)
+        
+        # Financial Summary Sheet
+        if "Financial Summary" in wb.sheetnames:
+            ws_fs = wb["Financial Summary"]
+            shares_cr = ws_fs["B9"].value
+            if shares_cr is not None:
+                model_json["shares_cr"] = float(shares_cr)
+            base_year = ws_fs["B10"].value
+            if base_year is not None:
+                model_json["base_year"] = str(base_year)
+            rating = ws_fs["B7"].value
+            if rating is not None:
+                model_json["rating"] = str(rating)
+            target_price = ws_fs["B5"].value
+            if target_price is not None:
+                model_json["target_price"] = float(target_price)
+            upside_val = ws_fs["B6"].value
+            if upside_val is not None:
+                model_json["upside_pct"] = round(float(upside_val) * 100, 2)
+            market_cap = ws_fs["B8"].value
+            if market_cap is not None:
+                model_json["market_cap"] = float(market_cap)
+
+        # Assumptions Sheet
+        if "Assumptions" in wb.sheetnames:
+            ws_as = wb["Assumptions"]
+            nc = ws_as.max_column
+            h_cols = []
+            p_cols = []
+            for col in range(2, nc + 1):
+                val = ws_as.cell(row=9, column=col).value
+                if val:
+                    val_str = str(val)
+                    if val_str.endswith("A"):
+                        h_cols.append(col)
+                    elif val_str.endswith("E"):
+                        p_cols.append(col)
+
+            proj_years = [str(ws_as.cell(row=9, column=col).value) for col in p_cols]
+            if "assumptions" not in model_json:
+                model_json["assumptions"] = {}
+            if proj_years:
+                model_json["assumptions"]["projection_years"] = proj_years
+
+            def _safe_float(val_in):
+                try:
+                    return float(val_in) if val_in not in (None, "", "—") else 0.0
+                except Exception:
+                    return 0.0
+
+            model_json["assumptions"]["wacc_pct"] = _safe_float(ws_as["B42"].value)
+            model_json["assumptions"]["terminal_growth_pct"] = _safe_float(ws_as["B43"].value)
+            model_json["assumptions"]["target_pe"] = _safe_float(ws_as["B44"].value)
+
+            target_ev = ws_as["B45"].value
+            if target_ev not in (None, "", "—"):
+                try:
+                    model_json["assumptions"]["target_ev_ebitda"] = float(target_ev)
+                except Exception:
+                    model_json["assumptions"]["target_ev_ebitda"] = None
+            else:
+                model_json["assumptions"]["target_ev_ebitda"] = None
+
+            model_json["assumptions"]["dividend_payout_pct"] = _safe_float(ws_as["B46"].value)
+            model_json["assumptions"]["rationale"] = ws_as.cell(row=49, column=1).value or ""
+
+            assum_items = [
+                ("revenue_growth_pct", 10),
+                ("rm_pct", 11),
+                ("employee_pct", 12),
+                ("power_fuel_pct", 13),
+                ("other_mfg_pct", 14),
+                ("selling_admin_pct", 15),
+                ("other_exp_pct", 16),
+                ("chg_inventory_pct", 17),
+                ("depreciation_cr", 18),
+                ("interest_cr", 19),
+                ("other_income_cr", 20),
+                ("tax_rate_pct", 21),
+                ("capex_cr", 22),
+                ("receivable_days", 23),
+                ("inventory_days", 24),
+                ("other_assets_pct", 25),
+            ]
+            for key, r_idx in assum_items:
+                model_json["assumptions"][key] = {}
+                for col, yr in zip(p_cols, proj_years):
+                    val = ws_as.cell(row=r_idx, column=col).value
+                    if val is not None:
+                        try:
+                            model_json["assumptions"][key][yr] = float(val)
+                        except Exception:
+                            pass
+
+            bs_cf_items = [
+                ("share_capital", 29),
+                ("reserves", 30),
+                ("borrowings", 31),
+                ("other_liabilities", 32),
+                ("net_block", 33),
+                ("cwip", 34),
+                ("investments", 35),
+                ("other_assets", 36),
+                ("cfo", 37),
+                ("cfi", 38),
+                ("cff", 39),
+            ]
+            if "projections" not in model_json:
+                model_json["projections"] = {}
+            model_json["projections"]["years"] = proj_years
+            for key, r_idx in bs_cf_items:
+                vals = []
+                for col in p_cols:
+                    val = ws_as.cell(row=r_idx, column=col).value
+                    try:
+                        vals.append(float(val) if val is not None else None)
+                    except Exception:
+                        vals.append(None)
+                model_json["projections"][key] = vals
+
+        # P&L Sheet
+        if "P&L" in wb.sheetnames:
+            ws_pl = wb["P&L"]
+            proj_rev = []
+            proj_ebitda = []
+            proj_pat = []
+            proj_eps = []
+            for col in p_cols:
+                try:
+                    proj_rev.append(float(ws_pl.cell(row=3, column=col).value or 0))
+                    proj_ebitda.append(float(ws_pl.cell(row=12, column=col).value or 0))
+                    proj_pat.append(float(ws_pl.cell(row=20, column=col).value or 0))
+                    proj_eps.append(float(ws_pl.cell(row=23, column=col).value or 0))
+                except Exception:
+                    proj_rev.append(0.0)
+                    proj_ebitda.append(0.0)
+                    proj_pat.append(0.0)
+                    proj_eps.append(0.0)
+
+            model_json["projected_pl"] = {
+                "years": proj_years,
+                "revenue": [round(x, 2) for x in proj_rev],
+                "ebitda": [round(x, 2) for x in proj_ebitda],
+                "pat": [round(x, 2) for x in proj_pat],
+                "eps": [round(x, 4) for x in proj_eps],
+            }
+
+        # SAARTHI Sheet
+        if "SAARTHI" in wb.sheetnames:
+            ws_saarthi = wb["SAARTHI"]
+            dimensions = []
+            expected_keys = ["S", "A1", "A2", "R", "T", "H", "I"]
+            for i, key in enumerate(expected_keys, start=5):
+                try:
+                    dimensions.append({
+                        "key": key,
+                        "name": ws_saarthi.cell(row=i, column=2).value,
+                        "score": float(ws_saarthi.cell(row=i, column=3).value or 0),
+                        "max_score": float(ws_saarthi.cell(row=i, column=4).value or 0),
+                        "rationale": ws_saarthi.cell(row=i, column=6).value or "",
+                    })
+                except Exception:
+                    pass
+            if "saarthi_scorecard" not in model_json:
+                model_json["saarthi_scorecard"] = {}
+            model_json["saarthi_scorecard"]["dimensions"] = dimensions
+            try:
+                model_json["saarthi_scorecard"]["total_score"] = int(ws_saarthi.cell(row=12, column=3).value or 70)
+            except Exception:
+                model_json["saarthi_scorecard"]["total_score"] = 70
+
+        # Scenario Analysis Sheet
+        if "Scenario_Analysis" in wb.sheetnames:
+            ws_scen = wb["Scenario_Analysis"]
+            def _read_scen(col_letter):
+                try:
+                    adj = ws_scen[f"{col_letter}7"].value
+                    pe = ws_scen[f"{col_letter}8"].value
+                    prob = ws_scen[f"{col_letter}9"].value
+                    tp = ws_scen[f"{col_letter}10"].value
+                    return {
+                        "eps_adjustment_pct": round(float(adj) * 100, 2) if adj is not None else 0.0,
+                        "target_pe": float(pe) if pe is not None else 0.0,
+                        "probability_pct": round(float(prob) * 100, 2) if prob is not None else 0.0,
+                        "target_price": float(tp) if tp is not None else 0.0,
+                    }
+                except Exception:
+                    return {"eps_adjustment_pct": 0.0, "target_pe": 0.0, "probability_pct": 0.0, "target_price": 0.0}
+
+            try:
+                weighted_tp = float(ws_scen["B13"].value or 0.0)
+            except Exception:
+                weighted_tp = 0.0
+
+            model_json["scenario_analysis"] = {
+                "bull": _read_scen("B"),
+                "base": _read_scen("C"),
+                "bear": _read_scen("D"),
+                "weighted_tp": weighted_tp,
+            }
+
+        wb.close()
+
+        # 4. Fetch live CMP from yfinance and update cmp/upside_pct
+        try:
+            info = yf.Ticker(f"{ticker}.NS").info
+            live_cmp = info.get("currentPrice")
+            if live_cmp:
+                model_json["cmp"] = float(live_cmp)
+                if model_json.get("target_price"):
+                    model_json["upside_pct"] = round((model_json["target_price"] / live_cmp - 1) * 100, 2)
+                if model_json.get("shares_cr"):
+                    model_json["market_cap"] = round(live_cmp * model_json["shares_cr"], 2)
+        except Exception as e:
+            print(f"yfinance fetch failed during JSON regeneration: {e}")
+
+        # 5. Write regenerated JSON locally
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(model_json, f, indent=2, default=str)
+
+        # 6. Upload Excel + JSON back to Supabase Storage
+        storage_result = upload_model_to_supabase(excel_path, ticker)
+
+        return {
+            "status": "success",
+            "json_storage_url": storage_result["json_storage_url"],
+            "storage_url": storage_result["storage_url"],
+        }
+
+    except Exception as e:
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"status": "error", "message": f"JSON regeneration failed: {str(e)}"})
+    finally:
+        if os.path.exists(temp_dir):
+            try:
+                shutil.rmtree(temp_dir)
+            except Exception:
+                pass
+
+
 # ========================
 # Run Server
 # ========================

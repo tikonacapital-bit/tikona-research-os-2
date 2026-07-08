@@ -243,6 +243,39 @@ export async function mirrorFinancialModelToStorage(
   };
 }
 
+/**
+ * Recalculates the Excel formulas on the server using LibreOffice and updates
+ * the JSON sidecar with the latest computed metrics and a live CMP.
+ */
+export async function regenerateFinancialModelJson(
+  ticker: string
+): Promise<{ jsonFileUrl: string; jsonFilePath: string }> {
+  const response = await fetch(`${FM_PROXY_URL}/regenerate-json/${ticker.toUpperCase()}`, {
+    method: 'POST',
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Financial model JSON regeneration failed: ${response.status} ${errorText.slice(0, 300)}`);
+  }
+
+  const data = (await response.json()) as {
+    status: string;
+    message?: string | null;
+    json_storage_url?: string | null;
+    json_storage_path?: string | null;
+  };
+
+  if (data.status !== 'success' || !data.json_storage_url) {
+    throw new Error(data.message || 'Financial model JSON regeneration did not return a URL');
+  }
+
+  return {
+    jsonFileUrl: data.json_storage_url,
+    jsonFilePath: data.json_storage_path ?? `financial-models/${ticker.toUpperCase()}/${ticker.toUpperCase()}_model.json`,
+  };
+}
+
 // Bucket + path convention used by scripts/financial_model_server.py — must stay in sync.
 const FM_STORAGE_BUCKET = 'research-reports-html';
 const financialModelStoragePath = (ticker: string) =>
