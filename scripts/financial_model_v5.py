@@ -4447,12 +4447,13 @@ def mk_valuations_table(wb, ctx):
     # We compute it inline here (no row refs since the three above just got written).
     blended_row_offset = r - 1  # the Blended row position once written
     blended_formulas = []
-    for col in fin_cols:
+    for idx, col in enumerate(fin_cols):
         if col is None:
             blended_formulas.append(None)
         else:
             # Cells just above: DCF (-3 rows), PE (-2), EV/EBITDA (-1) — relative refs.
-            cl = col  # same column letter
+            # Reference the local sheet column index (2 + idx) rather than the Financials_Table column
+            cl = get_column_letter(2 + idx)
             blended_formulas.append(
                 f"={cl}{blended_row_offset-2}*0.4+{cl}{blended_row_offset-1}*0.3+{cl}{blended_row_offset}*0.3"
             )
