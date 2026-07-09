@@ -539,7 +539,9 @@ export default function ResearchPipeline() {
     setVaultStatus('loading');
     
     try {
-      await transitionPipelineStatus(sessionId, 'vault_creating', pipelineStatus);
+      if (pipelineStatus !== 'vault_creating') {
+        await transitionPipelineStatus(sessionId, 'vault_creating', pipelineStatus);
+      }
       setPipelineStatus('vault_creating');
 
       const vaultResponse = await createVault(selectedCompany.nse_symbol ?? '', sector);
