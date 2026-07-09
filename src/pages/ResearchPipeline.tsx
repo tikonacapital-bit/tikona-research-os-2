@@ -250,6 +250,46 @@ export default function ResearchPipeline() {
           setVaultId(s.vault_folder_id);
           setVaultLink(s.vault_folder_url || `https://drive.google.com/drive/folders/${s.vault_folder_id}`);
           setVaultStatus('success');
+        } else if (s.pipeline_status === 'vault_creating' || s.pipeline_status === 'company_selected') {
+          // Auto-resume vault creation if interrupted
+          setVaultStatus('loading');
+          createVault(s.company_nse_code, s.sector || 'General')
+            .then(async (vaultResponse) => {
+              const { folderId, folderUrl, documents } = processVaultResponse(vaultResponse);
+              setVaultLink(folderUrl);
+              setVaultId(folderId);
+              setVaultDocuments(documents);
+              setVaultStatus('success');
+
+              await updatePipelineOutput(s.session_id, {
+                vault_folder_id: folderId,
+                vault_folder_url: folderUrl,
+              });
+
+              if (documents.length > 0) {
+                await saveSessionDocuments(
+                  documents.map(d => ({
+                    session_id: s.session_id,
+                    drive_file_id: d.id,
+                    file_name: d.name,
+                    mime_type: d.mimeType,
+                    file_size: d.size,
+                    view_url: d.viewUrl,
+                    download_url: d.downloadUrl,
+                    document_type: d.type,
+                    category: d.category,
+                  }))
+                ).catch(() => {});
+              }
+
+              await transitionPipelineStatus(s.session_id, 'vault_ready', 'vault_creating');
+              setPipelineStatus('vault_ready');
+              toast.success('Vault created — choose your next step');
+            })
+            .catch((err) => {
+              console.error('Auto-vault creation on resume failed:', err);
+              setVaultStatus('error');
+            });
         }
 
         // Restore financial model
@@ -488,6 +528,67 @@ export default function ResearchPipeline() {
       setVaultStatus('error');
     } finally {
       setIsCreatingSession(false);
+    }
+  };
+
+  // --- Retry Vault Creation (when previous try failed/timed out) ---
+  const handleRetryVaultCreation = async () => {
+    if (!sessionId || !selectedCompany || !session) return;
+    const sector = selectedSector || session.sector || 'General';
+    if (!selectedSector) setSelectedSector(sector);
+    setVaultStatus('loading');
+    
+    try {
+      await transitionPipelineStatus(sessionId, 'vault_creating', pipelineStatus);
+      setPipelineStatus('vault_creating');
+
+      const vaultResponse = await createVault(selectedCompany.nse_symbol ?? '', sector);
+      const { folderId, folderUrl, documents } = processVaultResponse(vaultResponse);
+      setVaultLink(folderUrl);
+      setVaultId(folderId);
+      setVaultDocuments(documents);
+      setVaultStatus('success');
+
+      // Persist vault data to session for restore on resume
+      await updatePipelineOutput(sessionId, {
+        vault_folder_id: folderId,
+        vault_folder_url: folderUrl,
+      });
+
+      // Automatically save the incoming documents since they are physically in the vault
+      if (documents.length > 0) {
+        await saveSessionDocuments(
+          documents.map(d => ({
+            session_id: sessionId,
+            drive_file_id: d.id,
+            file_name: d.name,
+            mime_type: d.mimeType,
+            file_size: d.size,
+            view_url: d.viewUrl,
+            download_url: d.downloadUrl,
+            document_type: d.type,
+            category: d.category,
+          }))
+        ).catch(() => console.error('Initial vault document save skipped/failed'));
+      }
+
+      await transitionPipelineStatus(sessionId, 'vault_ready', 'vault_creating');
+      setPipelineStatus('vault_ready');
+
+      toast.success('Vault created — choose your next step');
+
+      // Background: summarize vault docs with Haiku
+      if (documents.length > 0) {
+        summarizeVaultDocuments(sessionId, selectedCompany.company_name, selectedCompany.nse_symbol ?? '', documents)
+          .then(briefing => {
+            if (briefing) console.log('[Pipeline] Vault briefing cached:', briefing.length, 'chars');
+          })
+          .catch(err => console.warn('[Pipeline] Vault summarization failed:', err));
+      }
+    } catch (err) {
+      console.error('[Pipeline] Vault creation retry failed:', err);
+      toast.error(`Failed to create vault: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setVaultStatus('error');
     }
   };
 
@@ -1409,10 +1510,27 @@ export default function ResearchPipeline() {
 
             {/* ===== STEP: Vault creating (auto, shown right after session start) ===== */}
             {(pipelineStatus === 'company_selected' || pipelineStatus === 'vault_creating') && (
-              <div className="bg-white rounded-xl border border-neutral-200 p-8 text-center">
-                <Spinner size="sm" className="mx-auto mb-3" />
-                <p className="text-sm font-medium text-neutral-700">Creating your Drive vault...</p>
-                <p className="text-xs text-neutral-400 mt-1">Fetching documents and setting up folder structure</p>
+              <div className="bg-white rounded-xl border border-neutral-200 p-8 text-center animate-fade-up">
+                {vaultStatus === 'error' ? (
+                  <div className="py-4">
+                    <div className="h-12 w-12 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-3">
+                      <X className="h-5 w-5 text-red-500" />
+                    </div>
+                    <h3 className="text-sm font-semibold text-neutral-900 mb-1">Vault Creation Failed</h3>
+                    <p className="text-xs text-neutral-500 mb-4 max-w-md mx-auto">
+                      The request timed out or n8n returned an error. Click retry to attempt creating the vault again.
+                    </p>
+                    <Button onClick={handleRetryVaultCreation} className="bg-accent-600 hover:bg-accent-700 text-white rounded-xl px-5 h-9 text-xs font-medium shadow-sm">
+                      <RefreshCw className="h-3.5 w-3.5 mr-2 animate-pulse" /> Retry Vault Creation
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <Spinner size="sm" className="mx-auto mb-3" />
+                    <p className="text-sm font-medium text-neutral-700">Creating your Drive vault...</p>
+                    <p className="text-xs text-neutral-400 mt-1">Fetching documents and setting up folder structure</p>
+                  </>
+                )}
               </div>
             )}
 

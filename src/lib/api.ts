@@ -344,10 +344,10 @@ export async function createVault(ticker: string, sector: string): Promise<Vault
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(requestBody),
-    signal: AbortSignal.timeout(90_000), // 90s guard — n8n must respond within 90 seconds
+    signal: AbortSignal.timeout(240_000), // 240s guard — n8n must respond within 4 minutes
   }).catch((err: unknown) => {
     if (err instanceof Error && err.name === 'TimeoutError') {
-      throw new Error('Drive vault creation timed out after 90 seconds. Check that your n8n workflow is running and the webhook is responsive.');
+      throw new Error('Drive vault creation timed out after 4 minutes. Check that your n8n workflow is running and the webhook is responsive.');
     }
     throw err;
   });
