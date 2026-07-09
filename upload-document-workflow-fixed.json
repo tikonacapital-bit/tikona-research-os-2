@@ -1,0 +1,452 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "upload-document",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1408,
+        -272
+      ],
+      "id": "046517b1-1ebe-4b82-a426-98f53e34c168",
+      "name": "Webhook1",
+      "webhookId": "2e063edc-d1d7-4b49-9746-5aa46c3abddf"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json.body;\n\nlet mimeType = 'application/pdf';\nconst filename = item.file_name ? item.file_name.toLowerCase() : '';\nif (filename.endsWith('.pptx')) {\n    mimeType = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';\n} else if (filename.endsWith('.xlsx')) {\n    mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';\n} else if (filename.endsWith('.docx')) {\n    mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';\n}\n\nconst staticData = $getWorkflowStaticData('global');\nstaticData.__fileName = item.file_name || '';\nstaticData.__folderId = item.folder_id || '';\nstaticData.__subfolderName = item.subfolder_name || '';\nstaticData.__fileBase64 = item.file_base64 || '';\nstaticData.__mimeType = mimeType;\n\nreturn {\n    json: {\n        fileName: item.file_name,\n        folderId: item.folder_id,\n        subfolderName: item.subfolder_name || ''\n    }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1184,
+        -272
+      ],
+      "id": "58fd37b6-73c9-4d7f-b776-e6d4f70e1289",
+      "name": "Prepare"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "has-subfolder-cond",
+              "leftValue": "={{ $json.subfolderName }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -960,
+        -272
+      ],
+      "id": "if-has-subfolder-0001",
+      "name": "Has Subfolder?"
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "searchMethod": "query",
+        "queryString": "=name = '{{ $json.subfolderName.replace(/'/g, \"\\\\'\") }}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+        "filter": {
+          "driveId": {
+            "__rl": true,
+            "value": "0AEuW1s1xlgD1Uk9PVA",
+            "mode": "list",
+            "cachedResultName": "Tikona Capital Research & Automation OS",
+            "cachedResultUrl": "https://drive.google.com/drive/folders/0AEuW1s1xlgD1Uk9PVA"
+          },
+          "folderId": {
+            "__rl": true,
+            "value": "={{ $json.folderId }}",
+            "mode": "id"
+          }
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        -736,
+        -400
+      ],
+      "id": "search-subfolder-0001",
+      "name": "Search Subfolder",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "z9BTKWDUKGFkyilR",
+          "name": "Tikona Capital Drive"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "subfolder-found-cond",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -512,
+        -400
+      ],
+      "id": "if-subfolder-found-0001",
+      "name": "Subfolder Found?"
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "name": "={{ $getWorkflowStaticData('global').__subfolderName }}",
+        "driveId": {
+          "__rl": true,
+          "value": "0AEuW1s1xlgD1Uk9PVA",
+          "mode": "list",
+          "cachedResultName": "Tikona Capital Research & Automation OS",
+          "cachedResultUrl": "https://drive.google.com/drive/folders/0AEuW1s1xlgD1Uk9PVA"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $getWorkflowStaticData('global').__folderId }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        -288,
+        -496
+      ],
+      "id": "create-subfolder-0001",
+      "name": "Create Subfolder",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "z9BTKWDUKGFkyilR",
+          "name": "Tikona Capital Drive"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "target-company-folder-set",
+              "name": "targetFolderId",
+              "value": "={{ $json.folderId }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -736,
+        -144
+      ],
+      "id": "set-target-company-0001",
+      "name": "Target = Company Folder"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "target-existing-subfolder-set",
+              "name": "targetFolderId",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -288,
+        -336
+      ],
+      "id": "set-target-existing-0001",
+      "name": "Target = Existing Subfolder"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "target-new-subfolder-set",
+              "name": "targetFolderId",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -64,
+        -496
+      ],
+      "id": "set-target-new-0001",
+      "name": "Target = New Subfolder"
+    },
+    {
+      "parameters": {
+        "jsCode": "const targetFolderId = $input.first().json.targetFolderId;\nconst staticData = $getWorkflowStaticData('global');\n\nreturn {\n    json: {\n        fileName: staticData.__fileName,\n        folderId: targetFolderId\n    },\n    binary: {\n        data: {\n            data: staticData.__fileBase64,\n            mimeType: staticData.__mimeType,\n            fileName: staticData.__fileName\n        }\n    },\n    pairedItem: { item: 0 }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        160,
+        -272
+      ],
+      "id": "build-binary-0001",
+      "name": "Build Binary"
+    },
+    {
+      "parameters": {
+        "name": "={{ $json.fileName }}",
+        "driveId": {
+          "__rl": true,
+          "value": "0AEuW1s1xlgD1Uk9PVA",
+          "mode": "list",
+          "cachedResultName": "Tikona Capital Research & Automation OS",
+          "cachedResultUrl": "https://drive.google.com/drive/folders/0AEuW1s1xlgD1Uk9PVA"
+        },
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.folderId }}"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        384,
+        -272
+      ],
+      "id": "4a3acfaf-6211-4363-be29-ab0e5f553f5c",
+      "name": "Upload file1",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "z9BTKWDUKGFkyilR",
+          "name": "Tikona Capital Drive"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"success\",\n  \"file\": {{ JSON.stringify($json) }} \n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        608,
+        -272
+      ],
+      "id": "c6aaeac7-0799-4243-ba21-667b86ffcaf5",
+      "name": "Respond to Webhook1"
+    }
+  ],
+  "connections": {
+    "Webhook1": {
+      "main": [
+        [
+          {
+            "node": "Prepare",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare": {
+      "main": [
+        [
+          {
+            "node": "Has Subfolder?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Subfolder?": {
+      "main": [
+        [
+          {
+            "node": "Search Subfolder",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Target = Company Folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Subfolder": {
+      "main": [
+        [
+          {
+            "node": "Subfolder Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Subfolder Found?": {
+      "main": [
+        [
+          {
+            "node": "Target = Existing Subfolder",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Subfolder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Subfolder": {
+      "main": [
+        [
+          {
+            "node": "Target = New Subfolder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Target = Company Folder": {
+      "main": [
+        [
+          {
+            "node": "Build Binary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Target = Existing Subfolder": {
+      "main": [
+        [
+          {
+            "node": "Build Binary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Target = New Subfolder": {
+      "main": [
+        [
+          {
+            "node": "Build Binary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Binary": {
+      "main": [
+        [
+          {
+            "node": "Upload file1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload file1": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {
+    "Webhook1": [
+      {
+        "body": {
+          "folder_id": "119hT7XtolWG4_eWZ6dz5fxLORCUvSbN-",
+          "file_name": "MOTHERSON_model.xlsx",
+          "subfolder_name": "Financial Model"
+        }
+      }
+    ]
+  },
+  "meta": {
+    "instanceId": "589c44ecc0cafbaee926406246b4da6ba06dc823c9c482a3f9b37cb7a6b9df5e"
+  }
+}

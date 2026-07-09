@@ -1,0 +1,69 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "convert-to-pdf",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [-736, 656],
+      "id": "60c682c4-1ff0-4014-9dc7-afccd5eb63ed",
+      "name": "Webhook Trigger1",
+      "webhookId": "132b8704-1f59-4eb1-af9b-994ebeec8ee3"
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json.body.pptFileId }}",
+          "mode": "id"
+        },
+        "options": {
+          "googleFileConversion": {
+            "conversion": {
+              "slidesToFormat": "pptx"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [-512, 656],
+      "id": "10ceb578-8dbd-4f3f-ba03-860ac889f32a",
+      "name": "Download Original PPTX1",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "z9BTKWDUKGFkyilR",
+          "name": "Tikona Capital Drive"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "binary",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [-304, 656],
+      "id": "1a800d0c-e8e6-45fc-a639-c71e52211184",
+      "name": "Respond to Webhook1"
+    }
+  ],
+  "connections": {
+    "Webhook Trigger1": {
+      "main": [[{ "node": "Download Original PPTX1", "type": "main", "index": 0 }]]
+    },
+    "Download Original PPTX1": {
+      "main": [[{ "node": "Respond to Webhook1", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "589c44ecc0cafbaee926406246b4da6ba06dc823c9c482a3f9b37cb7a6b9df5e"
+  }
+}

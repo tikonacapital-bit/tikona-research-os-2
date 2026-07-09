@@ -1,0 +1,1219 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "extractHtmlContent",
+        "extractionValues": {
+          "values": [
+            {
+              "key": "excel_link",
+              "cssSelector": "a[href*=\"/excel/\"]",
+              "returnValue": "attribute",
+              "attribute": "href"
+            },
+            {
+              "key": "concall_links",
+              "cssSelector": "div.concalls li",
+              "returnValue": "html",
+              "returnArray": true
+            },
+            {
+              "key": "annual_report",
+              "cssSelector": "div.annual-reports li a",
+              "returnValue": "attribute",
+              "attribute": "href"
+            }
+          ]
+        },
+        "options": {
+          "cleanUpText": false
+        }
+      },
+      "type": "n8n-nodes-base.html",
+      "typeVersion": 1.2,
+      "position": [
+        464,
+        -992
+      ],
+      "id": "004062dd-8e2f-4740-b2c7-d6faa79d5ec7",
+      "name": "HTML1"
+    },
+    {
+      "parameters": {
+        "url": "=https://www.screener.in/company/{{ $('Webhook3').item.json.body.nse_symbol }}/#documents",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        240,
+        -992
+      ],
+      "id": "134b5ab3-5431-482c-89c2-3e93e46e6c28",
+      "name": "HTTP Request2",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "1orc3QCdxy8ZNWIE",
+          "name": "Header Auth account 6"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "create-folder",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1456,
+        -896
+      ],
+      "id": "6ec5b3a1-e675-4cf2-8e21-a7f28855113f",
+      "name": "Webhook3",
+      "webhookId": "1ed145ac-d302-41ca-9233-ea4205817ddc"
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "name": "={{ $('Webhook3').item.json.body.nse_symbol }}",
+        "driveId": {
+          "__rl": true,
+          "value": "0AEuW1s1xlgD1Uk9PVA",
+          "mode": "list",
+          "cachedResultName": "Tikona Capital Research & Automation OS",
+          "cachedResultUrl": "https://drive.google.com/drive/folders/0AEuW1s1xlgD1Uk9PVA"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $('Search files and folders1').first().json.id }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        -208,
+        -816
+      ],
+      "id": "23cbf2bb-6650-4470-a3d6-8e8a0448f018",
+      "name": "Create Company Folder1",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "z9BTKWDUKGFkyilR",
+          "name": "Tikona Capital Drive"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4O-MINI"
+        },
+        "responses": {
+          "values": [
+            {
+              "role": "system",
+              "content": "Agro Chemicals\nAir Transport Service\nAlcoholic Beverages\nAuto Ancillaries\nAutomobile\nBanks\nBearings\nCables\nCapital Goods – Electrical Equipment\nCapital Goods – Non Electrical Equipment\nCastings, Forgings & Fastners\nCement\nCement – Products\nCeramic Products\nChemicals\nComputer Education\nConstruction\nConsumer Durables\nCredit Rating Agencies\nCrude Oil & Natural Gas\nDiamond, Gems and Jewellery\nDiversified\nDry Cells\nE-Commerce / App Based Aggregator\nEdible Oil\nEducation\nElectronics\nEngineering\nEntertainment\nETF\nFerro Alloys\nFertilizers\nFinance\nFMCG\nGas Distribution\nGlass & Glass Products\nHealthcare\nHotels & Restaurants\nInfrastructure Developers & Operators\nInfrastructure Investment Trusts\nInsurance\nIT – Hardware\nIT – Software\nLeather\nLogistics\nMarine Port & Services\nMedia – Print / Television / Radio\nMining & Mineral Products\nMiscellaneous\nNon Ferrous Metals\nOil Drill / Allied\nOnline Media\nPackaging\nPaints / Varnish\nPaper\nPetrochemicals\nPharmaceuticals\nPlantation & Plantation Products\nPlastic Products\nPower Generation & Distribution\nPower Infrastructure\nPrinting & Stationery\nQuick Service Restaurant\nRailways\nReadymade Garments / Apparells\nReal Estate Investment Trusts\nRealty\nRefineries\nRefractories\nRetail\nSanitaryware\nShip Building\nShipping\nSteel\nStock / Commodity Brokers\nSugar\nTelecom – Handsets / Mobile\nTelecom Equipment & Infra Services\nTelecom – Service\nTextiles\nTobacco Products\nTrading\nTyres\n\nYou are a file sorter. Pick exactly one folder name from this list that matches the user's input. Output ONLY the folder name."
+            },
+            {
+              "content": "=Company: {{ $json.body.nse_symbol }}, Sector: {{ $json.body.sector }}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.1,
+      "position": [
+        -1232,
+        -896
+      ],
+      "id": "45db2997-df39-46fa-b311-c45621e557b2",
+      "name": "sort folder1",
+      "credentials": {
+        "openAiApi": {
+          "id": "TMMS3pMqjiGuuWVj",
+          "name": "RAG 23-12-2025"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "searchMethod": "query",
+        "queryString": "=name = '{{ $json.output[0].content[0].text.replace(/'/g, \"\\\\'\") }}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false\n",
+        "filter": {
+          "driveId": {
+            "__rl": true,
+            "value": "0AEuW1s1xlgD1Uk9PVA",
+            "mode": "list",
+            "cachedResultName": "Tikona Capital Research & Automation OS",
+            "cachedResultUrl": "https://drive.google.com/drive/folders/0AEuW1s1xlgD1Uk9PVA"
+          },
+          "folderId": {
+            "__rl": true,
+            "value": "1jVbvNk4UskV4GMVxxcRhvNJs7izYlliY",
+            "mode": "list",
+            "cachedResultName": "Research Report Automation",
+            "cachedResultUrl": "https://drive.google.com/drive/folders/1jVbvNk4UskV4GMVxxcRhvNJs7izYlliY"
+          }
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        -880,
+        -896
+      ],
+      "id": "b77dc012-c2e4-448f-8a24-1e2640589576",
+      "name": "Search files and folders1",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "z9BTKWDUKGFkyilR",
+          "name": "Tikona Capital Drive"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "searchMethod": "query",
+        "queryString": "=name = '{{ $('Webhook3').item.json.body.nse_symbol.replace(/'/g, \"\\\\'\") }}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false\n",
+        "filter": {
+          "driveId": {
+            "__rl": true,
+            "value": "0AEuW1s1xlgD1Uk9PVA",
+            "mode": "list",
+            "cachedResultName": "Tikona Capital Research & Automation OS",
+            "cachedResultUrl": "https://drive.google.com/drive/folders/0AEuW1s1xlgD1Uk9PVA"
+          },
+          "folderId": {
+            "__rl": true,
+            "value": "={{ $json.id }}",
+            "mode": "id"
+          }
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        -656,
+        -896
+      ],
+      "id": "47d46b36-db34-4440-b2cf-0e2cfb5a59a8",
+      "name": "Search Company Folder1",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "z9BTKWDUKGFkyilR",
+          "name": "Tikona Capital Drive"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "ce267ebc-60f4-4962-a378-401ac770b078",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -432,
+        -896
+      ],
+      "id": "0b599bc2-4a66-4c97-814c-d581be164f3e",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "22920f4c-401a-4dd6-9c59-87507490b7a6",
+              "name": "id",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        16,
+        -896
+      ],
+      "id": "d60ae6fe-aa93-4a93-a89a-635a39a0c135",
+      "name": "Final Folder ID1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst cleanItems = [];\n\nfor (const item of items) {\n    const data = item.json;\n    if (!data.url) continue;\n    \n    // Clean URL\n    const cleanUrl = data.url.trim();\n    const url = cleanUrl.toLowerCase();\n    \n    const isSwiggy = url.includes('swiggy.com');\n    const isBSE = url.includes('bseindia.com');\n    \n    cleanItems.push({\n        json: {\n            ...data,\n            url: cleanUrl,\n            source: isSwiggy ? 'swiggy' : (isBSE ? 'bse' : 'other')\n        }\n    });\n}\n\nreturn cleanItems;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        912,
+        -992
+      ],
+      "id": "23fff3a9-a0ce-4264-9121-cf00aa342b47",
+      "name": "Code in JavaScript6"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "maxRedirects": 10
+            }
+          },
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1136,
+        -992
+      ],
+      "id": "84d87a38-8241-4e2d-a70e-f121a7614043",
+      "name": "HTTP Request4"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst successful = [];\n\nfor (let i = 0; i < items.length; i++) {\n    const item = items[i];\n    if (item.error) continue;\n    if (!item.binary || !item.binary.data) continue;\n    successful.push(item);\n}\n\nreturn successful;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        -992
+      ],
+      "id": "01184851-fdb6-4e9e-8a3a-bf94e6033aef",
+      "name": "Code in JavaScript7"
+    },
+    {
+      "parameters": {
+        "jsCode": "const root = \"https://www.screener.in\";\nconst results = [];\nconst debugLog = [];\n\nconst item = $input.first().json;\n\n// Get NSE Symbol\nlet nseSymbol = \"UNKNOWN\";\ntry {\n    nseSymbol = $('Webhook3').first().json.body.nse_symbol;\n} catch (e) {\n    if (item.body && item.body.nse_symbol) nseSymbol = item.body.nse_symbol;\n}\n\n// --- Helper: Extract Quarter from text ---\nfunction extractQuarter(text) {\n    const cleanText = text.replace(/<[^>]+>/g, ' ');\n    \n    // Pattern 1: Explicit \"Q3 FY25\" format\n    let qMatch = cleanText.match(/Q([1-4])\\s*FY\\s*(\\d{2,4})/i);\n    if (qMatch) {\n        let fy = qMatch[2];\n        if (fy.length === 4) fy = fy.slice(2);\n        return `Q${qMatch[1]} FY${fy}`;\n    }\n    \n    // Pattern 2: \"Mon YYYY\" format (e.g., \"Jan 2026\") → derive quarter from month\n    const months = { jan:0, feb:1, mar:2, apr:3, may:4, jun:5, jul:6, aug:7, sep:8, oct:9, nov:10, dec:11 };\n    const monMatch = cleanText.match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+(\\d{4})/i);\n    if (monMatch) {\n        const monthIdx = months[monMatch[1].substring(0, 3).toLowerCase()];\n        const calYear = parseInt(monMatch[2]);\n        \n        const quarterMap = {\n            0:  { q: 3, fyOffset: 0 },   // Jan\n            1:  { q: 3, fyOffset: 0 },   // Feb\n            2:  { q: 4, fyOffset: 0 },   // Mar\n            3:  { q: 4, fyOffset: 0 },   // Apr\n            4:  { q: 4, fyOffset: 0 },   // May\n            5:  { q: 4, fyOffset: 0 },   // Jun\n            6:  { q: 1, fyOffset: 1 },   // Jul\n            7:  { q: 1, fyOffset: 1 },   // Aug\n            8:  { q: 1, fyOffset: 1 },   // Sep\n            9:  { q: 2, fyOffset: 1 },   // Oct\n            10: { q: 2, fyOffset: 1 },   // Nov\n            11: { q: 2, fyOffset: 1 },   // Dec\n        };\n        \n        const mapping = quarterMap[monthIdx];\n        const fy = (calYear + mapping.fyOffset) % 100;\n        return `Q${mapping.q} FY${fy}`;\n    }\n    \n    return \"\";\n}\n\n// --- Filename: \"SYMBOL - Quarter - Type.pdf\" ---\nfunction getFileName(type, extension, quarterOrFy = \"\") {\n    const timeSuffix = quarterOrFy ? ` - ${quarterOrFy}` : \"\";\n    return `${nseSymbol}${timeSuffix} - ${type}.${extension}`;\n}\n\nfunction extractLinkInfo(htmlString) {\n    // Corrected to reliably find href regardless of nested tags\n    const hrefMatch = htmlString.match(/href=[\"']([^\"']+)[\"']/i);\n    // Corrected: Safely strip all HTML tags (like <i> or <span>) to get clear readable text\n    const text = htmlString.replace(/<[^>]+>/g, ' ').trim();\n    return {\n        url: hrefMatch ? hrefMatch[1] : null,\n        text: text\n    };\n}\n\nfunction detectDocumentType(url, text) {\n    const lowerUrl = url ? url.toLowerCase() : \"\";\n    const lowerText = text ? text.toLowerCase() : \"\";\n    \n    if (lowerText.includes('transcript') || lowerText === 'transcript') {\n        if (!lowerUrl.includes('youtube') && !lowerUrl.includes('youtu.be')) return 'Concall Transcript';\n    }\n    if (lowerText.includes('ppt') || lowerText === 'ppt' || lowerText.includes('presentation')) return 'Investor PPT';\n    \n    if (lowerUrl.includes('transcript') && !lowerUrl.includes('youtube')) return 'Concall Transcript';\n    if (lowerUrl.includes('shareholder') || lowerUrl.includes('presentation')) return 'Investor PPT';\n    \n    return null;\n}\n\n// --- 1. ANNUAL REPORT ---\nif (item.annual_report) {\n    let url = item.annual_report;\n    if (url.startsWith('/')) url = root + url;\n    \n    let today = new Date();\n    let calYear = today.getFullYear();\n    let calMonth = today.getMonth();\n    let arFYNum = calMonth >= 6 ? (calYear % 100) : ((calYear - 1) % 100);\n    let arFYString = `FY${arFYNum}`;\n\n    results.push({\n        url: url,\n        filename: getFileName(\"Annual Report\", \"pdf\", arFYString),\n        type: \"Annual Report\",\n        quarter: arFYString\n    });\n}\n\n// --- 2. CONCALL LINKS (4 Transcripts + 1 PPT) ---\nif (item.concall_links && Array.isArray(item.concall_links)) {\n    // Corrected: Use a Set to track distinct quarters rather than arbitrary matches\n    let transcriptQuarters = new Set();\n    let pptFound = false;\n    \n    for (let i = 0; i < item.concall_links.length; i++) {\n        const htmlChunk = item.concall_links[i];\n        \n        const detectedQuarter = extractQuarter(htmlChunk);\n        \n        if (!detectedQuarter) {\n            debugLog.push(`Chunk ${i}: Skipped - no quarter found`);\n            continue;\n        }\n        \n        debugLog.push(`Chunk ${i}: Quarter=${detectedQuarter}`);\n        \n        // Corrected Regex: Catches the entire <a> tag, even if it contains inner icons/elements.\n        const linkMatches = htmlChunk.match(/<a\\b[^>]*>[\\s\\S]*?<\\/a>/gi) || [];\n        \n        for (const linkHtml of linkMatches) {\n            const linkInfo = extractLinkInfo(linkHtml);\n            if (!linkInfo.url) continue;\n            \n            const docType = detectDocumentType(linkInfo.url, linkInfo.text);\n            let finalUrl = linkInfo.url.startsWith('/') ? root + linkInfo.url : linkInfo.url;\n            \n            if (docType === 'Concall Transcript' && transcriptQuarters.size < 4) {\n                // Corrected: Deduplicate within the same quarter to prevent loop terminating early\n                if (!transcriptQuarters.has(detectedQuarter)) {\n                    transcriptQuarters.add(detectedQuarter);\n                    results.push({\n                        url: finalUrl,\n                        filename: getFileName(\"Concall Transcript\", \"pdf\", detectedQuarter),\n                        type: \"Concall Transcript\",\n                        quarter: detectedQuarter\n                    });\n                }\n            }\n            \n            if (docType === 'Investor PPT' && !pptFound) {\n                pptFound = true;\n                results.push({\n                    url: finalUrl,\n                    filename: getFileName(\"Investor PPT\", \"pdf\", detectedQuarter),\n                    type: \"Investor PPT\",\n                    quarter: detectedQuarter\n                });\n            }\n        }\n        \n        if (transcriptQuarters.size >= 4 && pptFound) break;\n    }\n}\n\nif (results.length > 0 && debugLog.length > 0) {\n    results[0].debug_log = debugLog.join('\\n');\n}\n\nreturn results.map(item => ({ json: item }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        688,
+        -992
+      ],
+      "id": "72f332d3-0a59-4670-8289-ff1e70a3372d",
+      "name": "Code in JavaScript8"
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1584,
+        -912
+      ],
+      "id": "721e6e50-b667-4e69-a14b-2705476f9987",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        2032,
+        -896
+      ],
+      "id": "ba90e8cf-237c-4898-b3f7-61dc103a31bb",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "searchMethod": "query",
+        "queryString": "=name = '{{ $json.type.replace(/'/g, \"\\\\'\") }}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+        "filter": {
+          "driveId": {
+            "__rl": true,
+            "value": "0AEuW1s1xlgD1Uk9PVA",
+            "mode": "list",
+            "cachedResultName": "Tikona Capital Research & Automation OS",
+            "cachedResultUrl": "https://drive.google.com/drive/folders/0AEuW1s1xlgD1Uk9PVA"
+          },
+          "folderId": {
+            "__rl": true,
+            "value": "={{ $('Final Folder ID1').first().json.id }}",
+            "mode": "id"
+          }
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2256,
+        -1104
+      ],
+      "id": "cb8bb267-11ce-414f-86bd-852893102ac7",
+      "name": "Search files and folders",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "z9BTKWDUKGFkyilR",
+          "name": "Tikona Capital Drive"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "4963700d-0928-4f44-a103-fdd5cc60d877",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2480,
+        -1104
+      ],
+      "id": "e2c3d3b3-0681-484f-9a02-ea0fab683a4b",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "name": "={{ $('Loop Over Items').item.json.type }}",
+        "driveId": {
+          "__rl": true,
+          "value": "0AEuW1s1xlgD1Uk9PVA",
+          "mode": "list",
+          "cachedResultName": "Tikona Capital Research & Automation OS",
+          "cachedResultUrl": "https://drive.google.com/drive/folders/0AEuW1s1xlgD1Uk9PVA"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $('Final Folder ID1').first().json.id }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2704,
+        -1040
+      ],
+      "id": "45630872-fa36-45a0-9b05-a02d408da34c",
+      "name": "Create folder",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "z9BTKWDUKGFkyilR",
+          "name": "Tikona Capital Drive"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "709ba235-a408-4e95-909f-14484fe73970",
+              "name": "subfolder_id",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2928,
+        -1104
+      ],
+      "id": "df8ae986-223e-49ba-852e-b2977d4647a7",
+      "name": "Edit Fields1"
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "searchMethod": "query",
+        "queryString": "=name = '{{ $('Loop Over Items').item.json.filename.replace(/'/g, \"\\\\'\") }}' and trashed = false",
+        "filter": {
+          "driveId": {
+            "__rl": true,
+            "value": "0AEuW1s1xlgD1Uk9PVA",
+            "mode": "list",
+            "cachedResultName": "Tikona Capital Research & Automation OS",
+            "cachedResultUrl": "https://drive.google.com/drive/folders/0AEuW1s1xlgD1Uk9PVA"
+          },
+          "folderId": {
+            "__rl": true,
+            "value": "={{ $json.subfolder_id }}",
+            "mode": "id"
+          }
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        3376,
+        -1104
+      ],
+      "id": "30be1d3f-f513-4b2a-8d8b-7f3a163fa875",
+      "name": "Search files and folders2",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "z9BTKWDUKGFkyilR",
+          "name": "Tikona Capital Drive"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "cbfd1bbe-1c07-45be-9011-dc18f6dedd1a",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3600,
+        -1040
+      ],
+      "id": "76747c12-6f46-4c02-8075-2af4b5ddc432",
+      "name": "If2"
+    },
+    {
+      "parameters": {
+        "name": "={{ $('Loop Over Items').item.json.filename }}",
+        "driveId": {
+          "__rl": true,
+          "value": "0AEuW1s1xlgD1Uk9PVA",
+          "mode": "list",
+          "cachedResultName": "Tikona Capital Research & Automation OS",
+          "cachedResultUrl": "https://drive.google.com/drive/folders/0AEuW1s1xlgD1Uk9PVA"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $('Edit Fields1').item.json.subfolder_id }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        4048,
+        -960
+      ],
+      "id": "a7cad76d-5d34-4f16-bbc7-98bd74d439f2",
+      "name": "Upload file",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "z9BTKWDUKGFkyilR",
+          "name": "Tikona Capital Drive"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "searchMethod": "query",
+        "queryString": "mimeType = 'application/vnd.google-apps.folder'",
+        "filter": {
+          "driveId": {
+            "__rl": true,
+            "value": "0AEuW1s1xlgD1Uk9PVA",
+            "mode": "list",
+            "cachedResultName": "Tikona Capital Research & Automation OS",
+            "cachedResultUrl": "https://drive.google.com/drive/folders/0AEuW1s1xlgD1Uk9PVA"
+          },
+          "folderId": {
+            "__rl": true,
+            "value": "={{ $('Final Folder ID1').first().json.id }}",
+            "mode": "id"
+          }
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2256,
+        -1344
+      ],
+      "id": "088228cb-0155-4f64-b1d3-667732993a31",
+      "name": "Search files and folders3",
+      "executeOnce": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "z9BTKWDUKGFkyilR",
+          "name": "Tikona Capital Drive"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "returnAll": true,
+        "filter": {
+          "driveId": {
+            "__rl": true,
+            "value": "0AEuW1s1xlgD1Uk9PVA",
+            "mode": "list",
+            "cachedResultName": "Tikona Capital Research & Automation OS",
+            "cachedResultUrl": "https://drive.google.com/drive/folders/0AEuW1s1xlgD1Uk9PVA"
+          },
+          "folderId": {
+            "__rl": true,
+            "value": "={{ $json.id }}",
+            "mode": "id"
+          }
+        },
+        "options": {
+          "fields": [
+            "*"
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2480,
+        -1344
+      ],
+      "id": "1882461d-fb39-431f-8b6c-db5943ad92d8",
+      "name": "Search files and folders4",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "z9BTKWDUKGFkyilR",
+          "name": "Tikona Capital Drive"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const allFiles = $input.all();\nconst folderInfo = $('Final Folder ID1').first().json;\nconst nseSymbol = $('Webhook3').first().json.body.nse_symbol;\n\n// Sort files by createdTime descending (newest first)\nconst sortedFiles = allFiles.map(item => item.json).sort((a, b) => {\n    return new Date(b.createdTime || 0) - new Date(a.createdTime || 0);\n});\n\nconst cleanFiles = [];\nconst seenNames = new Set();\n\nfor (const f of sortedFiles) {\n    if (!f.name) continue;\n    \n    // Clean name and check for duplicates\n    const cleanName = f.name.trim();\n    if (seenNames.has(cleanName)) continue;\n    seenNames.add(cleanName);\n    \n    // Explicitly check the file name to assign the perfect category\n    let docType = \"Document\";\n    if (cleanName.includes(\"Concall Transcript\")) {\n        docType = \"Concall Transcript\";\n    } else if (cleanName.includes(\"Annual Report\")) {\n        docType = \"Annual Report\";\n    } else if (cleanName.includes(\"Investor PPT\")) {\n        docType = \"Investor PPT\";\n    } else if (cleanName.includes(\"Financial Model\") || cleanName.includes(\"Excel\")) {\n        docType = \"Financial Model\";\n    } else if (cleanName.includes(\"Podcast\") || cleanName.includes(\"Audio\")) {\n        docType = \"Podcast\";\n    } else if (cleanName.includes(\"Video\")) {\n        docType = \"Video\";\n    }\n\n    cleanFiles.push({\n        id: f.id,\n        name: cleanName,\n        type: docType, \n        webViewLink: f.webViewLink || \"Link not fetched\",\n        webContentLink: f.webContentLink || \"Download not fetched\",\n        createdTime: f.createdTime\n    });\n}\n\n// Optional: Sort cleanFiles alphabetically by name for a cleaner UI list\ncleanFiles.sort((a, b) => a.name.localeCompare(b.name));\n\nreturn [{\n    json: {\n        status: \"success\",\n        company: nseSymbol,\n        main_folder_id: folderInfo.id,\n        total_files: cleanFiles.length,\n        files: cleanFiles\n    }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2704,
+        -1344
+      ],
+      "id": "9c30a307-04c2-4979-9e58-bbc1f3a263c4",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        2928,
+        -1344
+      ],
+      "id": "74881d70-4db1-4861-a3a1-c51341bba70d",
+      "name": "Respond to Webhook9"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nreturn [{\n  json: {\n    url: staticData.__currentUrl || '',\n    filename: staticData.__currentFilename || ''\n  },\n  pairedItem: { item: 0 }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3824,
+        -1040
+      ],
+      "id": "94ace9bd-1e43-4962-9ee5-352998619fad",
+      "name": "Restore Binary"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "maxRedirects": 10
+            }
+          },
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        4024,
+        -1040
+      ],
+      "id": "download-file-node-001",
+      "name": "Download File",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\n// Seed folders to ensure they are created\n// Seed folders to ensure they are created\nconst seedFolders = [\n  { type: \"Annual Report\", filename: \"\" },\n  { type: \"Concall Transcript\", filename: \"\" },\n  { type: \"Investor PPT\", filename: \"\" },\n  { type: \"Financial Model\", filename: \"\" },\n  { type: \"Research Report\", filename: \"\" },\n  { type: \"Podcast\", filename: \"\" }, // <-- ADDED\n  { type: \"Video\", filename: \"\" }    // <-- ADDED\n];\n\nconst result = [];\n\n// 1. Keep original items and preserve their pairing\nfor (let i = 0; i < items.length; i++) {\n  result.push({\n    json: items[i].json,\n    binary: items[i].binary,\n    pairedItem: {\n      item: i\n    }\n  });\n}\n\n// 2. Append seed folders and pair them with the first input item (index 0)\nfor (const folder of seedFolders) {\n  result.push({\n    json: folder,\n    pairedItem: {\n      item: 0\n    }\n  });\n}\n\nreturn result;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1808,
+        -896
+      ],
+      "id": "fb0d6011-2b64-4705-85f4-82e1cba32879",
+      "name": "Add Seed Folders"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "check-filename-not-empty",
+              "leftValue": "={{ $('Loop Over Items').item.json.filename }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3152,
+        -1104
+      ],
+      "id": "47b7fd61-968d-4839-8ff7-6982e33083b8",
+      "name": "Is File Real?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst item = $input.first();\nstaticData.__currentUrl = item.json.url || '';\nstaticData.__currentFilename = item.json.filename || '';\nreturn [item];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2144,
+        -1000
+      ],
+      "id": "cache-url-node-001",
+      "name": "Cache URL"
+    }
+  ],
+  "connections": {
+    "HTML1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript8",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request2": {
+      "main": [
+        [
+          {
+            "node": "HTML1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook3": {
+      "main": [
+        [
+          {
+            "node": "sort folder1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Company Folder1": {
+      "main": [
+        [
+          {
+            "node": "Final Folder ID1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "sort folder1": {
+      "main": [
+        [
+          {
+            "node": "Search files and folders1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search files and folders1": {
+      "main": [
+        [
+          {
+            "node": "Search Company Folder1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Company Folder1": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Final Folder ID1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Company Folder1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Final Folder ID1": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript6": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request4": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript7",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript7": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript8": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript6",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Add Seed Folders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Search files and folders3",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Cache URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cache URL": {
+      "main": [
+        [
+          {
+            "node": "Search files and folders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search files and folders": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create folder": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "Is File Real?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search files and folders2": {
+      "main": [
+        [
+          {
+            "node": "If2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If2": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Restore Binary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload file": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search files and folders3": {
+      "main": [
+        [
+          {
+            "node": "Search files and folders4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search files and folders4": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook9",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore Binary": {
+      "main": [
+        [
+          {
+            "node": "Download File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download File": {
+      "main": [
+        [
+          {
+            "node": "Upload file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Seed Folders": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is File Real?": {
+      "main": [
+        [
+          {
+            "node": "Search files and folders2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {
+    "Webhook3": [
+      {
+        "headers": {
+          "host": "n8n.tikonacapital.com",
+          "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+          "content-length": "48",
+          "accept": "*/*",
+          "accept-encoding": "gzip, deflate, br, zstd",
+          "accept-language": "en-US,en;q=0.9",
+          "content-type": "application/json",
+          "cookie": "__clerk_db_jwt_E5znWSAI=dvb_3AVs8bnJC9yUMuXL7ESrSf6Igdh; __clerk_db_jwt=dvb_3AVs8bnJC9yUMuXL7ESrSf6Igdh; __session=eyJhbGciOiJSUzI1NiIsImNhdCI6ImNsX0I3ZDRQRDExMUFBQSIsImtpZCI6Imluc18zQUZwMkpUNWdPM0ZES0JneWdpUWZWa1FCSmEiLCJ0eXAiOiJKV1QifQ.eyJhenAiOiJodHRwOi8vbG9jYWxob3N0OjgwODEiLCJleHAiOjE3NzUxMzA4MzYsImZ2YSI6WzQ1LC0xXSwiaWF0IjoxNzc1MTMwNzc2LCJpc3MiOiJodHRwczovL21hbnktbG9ic3Rlci01OC5jbGVyay5hY2NvdW50cy5kZXYiLCJuYmYiOjE3NzUxMzA3NjYsInNpZCI6InNlc3NfM0JuYnpoU1VKZk5ZSzlZYm1GbWZGdVBYRzRjIiwic3RzIjoiYWN0aXZlIiwic3ViIjoidXNlcl8zQUh4RHlSQTRRU3QzRHlLUlM2d1IzYXZqYVkiLCJ2IjoyfQ.sbFR0K1cZbrMhIZJgWGqdiNIdljJkXbaGSb_zBqwH-AmhQQ4JXGyDCdsU5WkjrYQBgjV48f64Lnr3rwI5QSzd8WuoF8PUuKVcpEbA71eUIOz4AXoO80G_WbDgcE9t7d-vg9e5bmByc4go4xUYu5ZdgwtG22qYbfz-WIXNe2wZpQZG90YifWeROAfXOdZskNF9MpixbgfqdDAWSaxY7xWSjgeZ--38ZpkxGHarSlHJoesxgJWZtqPtRfrL2qRj_n2wfl-uxUSuuq17W_k8ZPTr_5g4_mNymQG3Ni32EWnMBwUHt7S4j3-lxoXH6UYa5R0AvV1szp7CKm6ajaX8ZrLQw; __session_E5znWSAI=eyJhbGciOiJSUzI1NiIsImNhdCI6ImNsX0I3ZDRQRDExMUFBQSIsImtpZCI6Imluc18zQUZwMkpUNWdPM0ZES0JneWdpUWZWa1FCSmEiLCJ0eXAiOiJKV1QifQ.eyJhenAiOiJodHRwOi8vbG9jYWxob3N0OjgwODEiLCJleHAiOjE3NzUxMzA4MzYsImZ2YSI6WzQ1LC0xXSwiaWF0IjoxNzc1MTMwNzc2LCJpc3MiOiJodHRwczovL21hbnktbG9ic3Rlci01OC5jbGVyay5hY2NvdW50cy5kZXYiLCJuYmYiOjE3NzUxMzA3NjYsInNpZCI6InNlc3NfM0JuYnpoU1VKZk5ZSzlZYm1GbWZGdVBYRzRjIiwic3RzIjoiYWN0aXZlIiwic3ViIjoidXNlcl8zQUh4RHlSQTRRU3QzRHlLUlM2d1IzYXZqYVkiLCJ2IjoyfQ.sbFR0K1cZbrMhIZJgWGqdiNIdljJkXbaGSb_zBqwH-AmhQQ4JXGyDCdsU5WkjrYQBgjV48f64Lnr3rwI5QSzd8WuoF8PUuKVcpEbA71eUIOz4AXoO80G_WbDgcE9t7d-vg9e5bmByc4go4xUYu5ZdgwtG22qYbfz-WIXNe2wZpQZG90YifWeROAfXOdZskNF9MpixbgfqdDAWSaxY7xWSjgeZ--38ZpkxGHarSlHJoesxgJWZtqPtRfrL2qRj_n2wfl-uxUSuuq17W_k8ZPTr_5g4_mNymQG3Ni32EWnMBwUHt7S4j3-lxoXH6UYa5R0AvV1szp7CKm6ajaX8ZrLQw; __client_uat_E5znWSAI=1775128045; __client_uat=1775128045; _ga=GA1.1.996392081.1782192724; _ga_EDBFC55J91=GS2.1.s1782292551$o4$g0$t1782292551$j60$l0$h0",
+          "origin": "http://localhost:5173",
+          "referer": "http://localhost:5173/admin/pipeline",
+          "sec-ch-ua": "\"Not;A=Brand\";v=\"8\", \"Chromium\";v=\"150\", \"Google Chrome\";v=\"150\"",
+          "sec-ch-ua-mobile": "?0",
+          "sec-ch-ua-platform": "\"Windows\"",
+          "sec-fetch-dest": "empty",
+          "sec-fetch-mode": "cors",
+          "sec-fetch-site": "same-origin",
+          "x-forwarded-for": "223.181.56.48",
+          "x-forwarded-host": "n8n.tikonacapital.com",
+          "x-forwarded-port": "443",
+          "x-forwarded-proto": "https",
+          "x-forwarded-server": "9fd3c9074c11",
+          "x-real-ip": "223.181.56.48"
+        },
+        "params": {},
+        "query": {},
+        "body": {
+          "nse_symbol": "MOTHERSON",
+          "sector": "Automobile"
+        },
+        "webhookUrl": "https://n8n.tikonacapital.com/webhook/create-folder",
+        "executionMode": "production"
+      }
+    ]
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "589c44ecc0cafbaee926406246b4da6ba06dc823c9c482a3f9b37cb7a6b9df5e"
+  }
+}

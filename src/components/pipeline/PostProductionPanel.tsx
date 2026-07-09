@@ -430,9 +430,9 @@ export default function PostProductionPanel({
 
     setSlidesSyncing(true);
     
-    // Google Slides auto-saves changes asynchronously. We introduce a 7-second countdown
+    // Google Slides auto-saves changes asynchronously. We introduce a 15-second countdown
     // to give Google Drive enough time to persist the latest changes before exporting the file.
-    const totalDelaySeconds = 7;
+    const totalDelaySeconds = 15;
     for (let sec = totalDelaySeconds; sec > 0; sec--) {
       setSyncDelayRemaining(sec);
       await new Promise((resolve) => setTimeout(resolve, 1000));
