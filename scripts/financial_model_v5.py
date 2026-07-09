@@ -786,7 +786,7 @@ class OperationalChart(BaseModel):
     title: str
     chart_type: Literal["bar", "line", "stacked_bar", "donut"]
     years: list[str]
-    values: list[Optional[float]] = Field(default_factory=list)
+    values: Optional[list[Optional[float]]] = Field(default_factory=list)
     ylabel: Optional[str] = None
     series_names: Optional[list[str]] = None
     stacked_values: Optional[dict[str, list[Optional[float]]]] = None
