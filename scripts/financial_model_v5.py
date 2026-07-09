@@ -732,15 +732,15 @@ class BoardMember(BaseModel):
 
 
 class Shareholding(BaseModel):
-    years: list[str] = Field(default_factory=list)
-    promoter_pct: list[Optional[float]] = Field(default_factory=list)
-    fii_pct: list[Optional[float]] = Field(default_factory=list)
-    dii_pct: list[Optional[float]] = Field(default_factory=list)
-    public_pct: list[Optional[float]] = Field(default_factory=list)
+    years: Optional[list[str]] = Field(default_factory=list)
+    promoter_pct: Optional[list[Optional[float]]] = Field(default_factory=list)
+    fii_pct: Optional[list[Optional[float]]] = Field(default_factory=list)
+    dii_pct: Optional[list[Optional[float]]] = Field(default_factory=list)
+    public_pct: Optional[list[Optional[float]]] = Field(default_factory=list)
 
 
 class GovernanceData(BaseModel):
-    board: list[BoardMember] = Field(default_factory=list)
+    board: Optional[list[BoardMember]] = Field(default_factory=list)
     shareholding: Optional[Shareholding] = None
     promoter_pledge_pct: Optional[float] = None
     board_size: Optional[float] = None
@@ -772,9 +772,9 @@ class RiskItem(BaseModel):
 
 class PeerDetailed(BaseModel):
     name: str
-    revenue_series: list[Optional[float]] = Field(default_factory=list)
-    ebitda_margin_series: list[Optional[float]] = Field(default_factory=list)
-    pat_series: list[Optional[float]] = Field(default_factory=list)
+    revenue_series: Optional[list[Optional[float]]] = Field(default_factory=list)
+    ebitda_margin_series: Optional[list[Optional[float]]] = Field(default_factory=list)
+    pat_series: Optional[list[Optional[float]]] = Field(default_factory=list)
     mcap_cr: Optional[float] = None
     pe: Optional[float] = None
     pb: Optional[float] = None
@@ -825,13 +825,13 @@ class ConsensusData(BaseModel):
     target_avg: Optional[float] = None
     target_low: Optional[float] = None
     # Forward consensus growth estimates (FY+1, FY+2, FY+3)
-    forecast_years: list[str] = Field(default_factory=list)
-    revenue_growth_pct: list[Optional[float]] = Field(default_factory=list)
-    ebitda_growth_pct: list[Optional[float]] = Field(default_factory=list)
-    pat_growth_pct: list[Optional[float]] = Field(default_factory=list)
-    eps_growth_pct: list[Optional[float]] = Field(default_factory=list)
+    forecast_years: Optional[list[str]] = Field(default_factory=list)
+    revenue_growth_pct: Optional[list[Optional[float]]] = Field(default_factory=list)
+    ebitda_growth_pct: Optional[list[Optional[float]]] = Field(default_factory=list)
+    pat_growth_pct: Optional[list[Optional[float]]] = Field(default_factory=list)
+    eps_growth_pct: Optional[list[Optional[float]]] = Field(default_factory=list)
     # Individual broker recommendations
-    broker_forecasts: list[BrokerForecast] = Field(default_factory=list)
+    broker_forecasts: Optional[list[BrokerForecast]] = Field(default_factory=list)
 
 
 class FinancialModelOutput(BaseModel):
