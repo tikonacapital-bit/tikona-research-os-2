@@ -106,6 +106,13 @@ const PROJECT_WEBHOOKS: {
     usedIn: 'Post Production',
   },
   {
+    label: 'Generate Video Script',
+    webhook: 'generate-video-script',
+    description: 'Generates video narrator script from report',
+    icon: FileText,
+    usedIn: 'Post Production',
+  },
+  {
     label: 'Generate Video',
     webhook: 'generate-video',
     description: 'Renders final research video',
