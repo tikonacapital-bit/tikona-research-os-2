@@ -4098,22 +4098,44 @@ def mk_fin_summary(wb, ctx):
     _ext_section_divider(ws, r, ncols, "VALUATIONS (AT CMP)")
     r += 1
     alt["v"] = False
-    # P/E, P/B, P/S = CMP / per-share. Use Assumptions!B5 (CMP) and Financials_Table EPS / BV / Sales-per-share.
-    # Book Value per share = Net Worth / shares; Sales per share = Revenue / shares.
-    emit("P/E (x)",        FMT_MULT, cmp_div_fmla(F_EPS))
-    emit("P/B (x)",        FMT_MULT, [
-        (None if col is None else f"=IFERROR(Assumptions!B5/('{FIN}'!{col}{F_NETWORTH}/Assumptions!B2),\"-\")")
-        for col in fin_cols
-    ])
-    emit("P/S (x)",        FMT_MULT, [
-        (None if col is None else f"=IFERROR(Assumptions!B5/('{FIN}'!{col}{F_REV}/Assumptions!B2),\"-\")")
-        for col in fin_cols
-    ])
-    # EV/EBITDA = (MarketCap + TotalDebt) / EBITDA per year
-    emit("EV/EBITDA (x)",  FMT_MULT, [
-        (None if col is None else f"=IFERROR((Assumptions!B6+'{FIN}'!{col}{F_TOTDEBT})/'{FIN}'!{col}{F_EBITDA},\"-\")")
-        for col in fin_cols
-    ])
+    # P/E, P/B, P/S, EV/EBITDA = dynamically resolved by listed price of that year
+    pe_formulas = []
+    pb_formulas = []
+    ps_formulas = []
+    ev_ebitda_formulas = []
+    
+    for i, col in enumerate(fin_cols):
+        if col is None:
+            pe_formulas.append(None)
+            pb_formulas.append(None)
+            ps_formulas.append(None)
+            ev_ebitda_formulas.append(None)
+            continue
+            
+        yl = years_disp_lbl[i]
+        if i < h_count:
+            norm_year = yl.replace("A", "").replace("E", "").strip().upper()
+            if norm_year in [y.upper() for y in sd["fiscal_years"]]:
+                idx = [y.upper() for y in sd["fiscal_years"]].index(norm_year)
+                ds_col = get_column_letter(sd["data_cols"][idx])
+                price_ref = f"IF(ISNUMBER('Data Sheet'!{ds_col}90), 'Data Sheet'!{ds_col}90, \"-\")"
+                mcap_ref = f"(IF(ISNUMBER('Data Sheet'!{ds_col}90), 'Data Sheet'!{ds_col}90, \"-\")*Assumptions!B2)"
+            else:
+                price_ref = "\"-\""
+                mcap_ref = "\"-\""
+        else:
+            price_ref = "Assumptions!B5"
+            mcap_ref = "Assumptions!B6"
+            
+        pe_formulas.append(f"=IFERROR({price_ref}/'{FIN}'!{col}{F_EPS},\"-\")")
+        pb_formulas.append(f"=IFERROR({price_ref}/('{FIN}'!{col}{F_NETWORTH}/Assumptions!B2),\"-\")")
+        ps_formulas.append(f"=IFERROR({price_ref}/('{FIN}'!{col}{F_REV}/Assumptions!B2),\"-\")")
+        ev_ebitda_formulas.append(f"=IFERROR(({mcap_ref}+'{FIN}'!{col}{F_TOTDEBT})/'{FIN}'!{col}{F_EBITDA},\"-\")")
+        
+    emit("P/E (x)",        FMT_MULT, pe_formulas)
+    emit("P/B (x)",        FMT_MULT, pb_formulas)
+    emit("P/S (x)",        FMT_MULT, ps_formulas)
+    emit("EV/EBITDA (x)",  FMT_MULT, ev_ebitda_formulas)
 
 
 def mk_earnings_forecast(wb, ctx):
@@ -4335,44 +4357,71 @@ def mk_valuations_table(wb, ctx):
     _ext_section_divider(ws, r, ncols, "MARKET DATA")
     r += 1
     alt["v"] = False
-    emit("CMP (Rs)",                FMT_PER_SHARE, ["=Assumptions!B5"] * len(years_disp_lbl))
-    emit("Market Cap (Rs Cr)",      FMT_INR,       ["=Assumptions!B6"] * len(years_disp_lbl))
-    # Enterprise Value = MarketCap + Total Debt per year
-    emit("Enterprise Value (Rs Cr)", FMT_INR, [
-        (None if col is None else f"=Assumptions!B6+'{FIN}'!{col}{F_TOTDEBT}")
-        for col in fin_cols
-    ])
+    cmp_formulas = []
+    for i, col in enumerate(fin_cols):
+        if col is None:
+            cmp_formulas.append(None)
+        elif i < h_count:
+            yl = years_disp_lbl[i]
+            norm_year = yl.replace("A", "").replace("E", "").strip().upper()
+            if norm_year in [y.upper() for y in sd["fiscal_years"]]:
+                idx = [y.upper() for y in sd["fiscal_years"]].index(norm_year)
+                ds_col = get_column_letter(sd["data_cols"][idx])
+                cmp_formulas.append(f"=IF(ISNUMBER('Data Sheet'!{ds_col}90), 'Data Sheet'!{ds_col}90, \"-\")")
+            else:
+                cmp_formulas.append("-")
+        else:
+            cmp_formulas.append("=Assumptions!B5")
+    emit("CMP (Rs)", FMT_PER_SHARE, cmp_formulas)
+
+    mcap_formulas = []
+    for i, col in enumerate(fin_cols):
+        if col is None:
+            mcap_formulas.append(None)
+        else:
+            cl = get_column_letter(2 + i)
+            mcap_formulas.append(f"=IF(ISNUMBER({cl}6), {cl}6*Assumptions!B2, \"-\")")
+    emit("Market Cap (Rs Cr)", FMT_INR, mcap_formulas)
+
+    ev_formulas = []
+    for i, col in enumerate(fin_cols):
+        if col is None:
+            ev_formulas.append(None)
+        else:
+            cl = get_column_letter(2 + i)
+            ev_formulas.append(f"=IF(ISNUMBER({cl}7), {cl}7+'{FIN}'!{col}{F_TOTDEBT}, \"-\")")
+    emit("Enterprise Value (Rs Cr)", FMT_INR, ev_formulas)
 
     _ext_section_divider(ws, r, ncols, "EARNINGS MULTIPLES")
     r += 1
     alt["v"] = False
     # P/E = CMP / EPS
     emit("P/E (x)", FMT_MULT, [
-        (None if col is None else f"=IFERROR(Assumptions!B5/'{FIN}'!{col}{F_EPS},\"-\")")
-        for col in fin_cols
+        (None if col is None else f"=IFERROR({get_column_letter(2 + i)}6/'{FIN}'!{col}{F_EPS},\"-\")")
+        for i, col in enumerate(fin_cols)
     ])
     # P/B = CMP / (NetWorth / Shares)
     emit("P/B (x)", FMT_MULT, [
-        (None if col is None else f"=IFERROR(Assumptions!B5/('{FIN}'!{col}{F_NETWORTH}/Assumptions!B2),\"-\")")
-        for col in fin_cols
+        (None if col is None else f"=IFERROR({get_column_letter(2 + i)}6/('{FIN}'!{col}{F_NETWORTH}/Assumptions!B2),\"-\")")
+        for i, col in enumerate(fin_cols)
     ])
     # P/Sales = CMP / (Revenue / Shares)
     emit("P/Sales (x)", FMT_MULT, [
-        (None if col is None else f"=IFERROR(Assumptions!B5/('{FIN}'!{col}{F_REV}/Assumptions!B2),\"-\")")
-        for col in fin_cols
+        (None if col is None else f"=IFERROR({get_column_letter(2 + i)}6/('{FIN}'!{col}{F_REV}/Assumptions!B2),\"-\")")
+        for i, col in enumerate(fin_cols)
     ])
-    # EV/EBITDA = (MarketCap + Debt) / EBITDA
+    # EV/EBITDA = EV / EBITDA
     emit("EV/EBITDA (x)", FMT_MULT, [
-        (None if col is None else f"=IFERROR((Assumptions!B6+'{FIN}'!{col}{F_TOTDEBT})/'{FIN}'!{col}{F_EBITDA},\"-\")")
-        for col in fin_cols
+        (None if col is None else f"=IFERROR({get_column_letter(2 + i)}8/'{FIN}'!{col}{F_EBITDA},\"-\")")
+        for i, col in enumerate(fin_cols)
     ])
     emit("EV/Sales (x)", FMT_MULT, [
-        (None if col is None else f"=IFERROR((Assumptions!B6+'{FIN}'!{col}{F_TOTDEBT})/'{FIN}'!{col}{F_REV},\"-\")")
-        for col in fin_cols
+        (None if col is None else f"=IFERROR({get_column_letter(2 + i)}8/'{FIN}'!{col}{F_REV},\"-\")")
+        for i, col in enumerate(fin_cols)
     ])
     emit("EV/EBIT (x)", FMT_MULT, [
-        (None if col is None else f"=IFERROR((Assumptions!B6+'{FIN}'!{col}{F_TOTDEBT})/'{FIN}'!{col}{F_EBIT},\"-\")")
-        for col in fin_cols
+        (None if col is None else f"=IFERROR({get_column_letter(2 + i)}8/'{FIN}'!{col}{F_EBIT},\"-\")")
+        for i, col in enumerate(fin_cols)
     ])
 
     _ext_section_divider(ws, r, ncols, "PER SHARE")
@@ -4406,20 +4455,20 @@ def mk_valuations_table(wb, ctx):
     emit("ROCE %", FMT_PCT, fmla(F_ROCE))
     # Earnings Yield = EPS / CMP
     emit("Earnings Yield %", FMT_PCT, [
-        (None if col is None else f"=IFERROR('{FIN}'!{col}{F_EPS}/Assumptions!B5,\"-\")")
-        for col in fin_cols
+        (None if col is None else f"=IFERROR('{FIN}'!{col}{F_EPS}/{get_column_letter(2 + i)}6,\"-\")")
+        for i, col in enumerate(fin_cols)
     ])
     # Dividend Yield = DPS / CMP
     if div_payout_row:
         emit("Dividend Yield %", FMT_PCT, [
             (None if col is None else
-             f"=IFERROR('{FIN}'!{col}{F_PAT}*Assumptions!B{div_payout_row}/100/Assumptions!B2/Assumptions!B5,\"-\")")
-            for col in fin_cols
+             f"=IFERROR('{FIN}'!{col}{F_PAT}*Assumptions!B{div_payout_row}/100/Assumptions!B2/{get_column_letter(2 + i)}6,\"-\")")
+            for i, col in enumerate(fin_cols)
         ])
     # FCF Yield = (CFO - Capex) / MarketCap
     emit("FCF Yield %", FMT_PCT, [
-        (None if col is None else f"=IFERROR(('{FIN}'!{col}{F_CFO}-'{FIN}'!{col}{F_CAPEX})/Assumptions!B6,\"-\")")
-        for col in fin_cols
+        (None if col is None else f"=IFERROR(('{FIN}'!{col}{F_CFO}-'{FIN}'!{col}{F_CAPEX})/{get_column_letter(2 + i)}7,\"-\")")
+        for i, col in enumerate(fin_cols)
     ])
 
     _ext_section_divider(ws, r, ncols, "DCF ASSUMPTIONS")
@@ -6449,6 +6498,72 @@ def compute_derived_facts(model_json: dict, screener_data: dict) -> None:
             )
 
 
+def update_screener_excel_prices_with_yfinance(filepath: str, nse_code: str) -> None:
+    """
+    Open Screener Excel workbook at filepath, fetch historical adjusted stock prices
+    for nse_code from yfinance, map them to dates in row 16, write them to row 90 of 'Data Sheet',
+    and save the workbook.
+    """
+    import yfinance as yf
+    import pandas as pd
+    from datetime import datetime
+    from openpyxl import load_workbook
+    
+    ticker_symbol = f"{nse_code.upper()}.NS"
+    logger.info(f"Fetching yfinance daily history for {ticker_symbol} to align historical prices in Excel...")
+    try:
+        stock = yf.Ticker(ticker_symbol)
+        hist = stock.history(start="2010-01-01", end=datetime.now().strftime("%Y-%m-%d"))
+        if hist.empty:
+            ticker_symbol = f"{nse_code.upper()}.BO"
+            logger.info(f"Ticker {nse_code.upper()}.NS returned no data. Trying BSE symbol {ticker_symbol}...")
+            stock = yf.Ticker(ticker_symbol)
+            hist = stock.history(start="2010-01-01", end=datetime.now().strftime("%Y-%m-%d"))
+            
+        if hist.empty:
+            logger.warning(f"No yfinance history found for {ticker_symbol}. Historical prices row 90 will remain as is.")
+            return
+            
+        # Open in formula-preserving mode
+        wb = load_workbook(filepath, data_only=False)
+        if "Data Sheet" not in wb.sheetnames:
+            logger.warning("No 'Data Sheet' in Excel. Skipping price update.")
+            wb.close()
+            return
+        ws = wb["Data Sheet"]
+        
+        # Read fiscal year dates from row 16, columns 2 to 20
+        updated_count = 0
+        for col in range(2, 20):
+            dt = ws.cell(row=16, column=col).value
+            if dt is not None:
+                try:
+                    target_dt = pd.to_datetime(dt).tz_localize('Asia/Kolkata')
+                    # Find closest date on or before target_dt
+                    valid_dates = hist.index[hist.index <= target_dt]
+                    if not valid_dates.empty:
+                        closest_date = valid_dates[-1]
+                        time_diff = (target_dt - closest_date).days
+                        # Allow up to 7 days difference (for weekends, holidays)
+                        if time_diff <= 7:
+                            price = float(hist.loc[closest_date, 'Close'])
+                            ws.cell(row=90, column=col, value=price)
+                            updated_count += 1
+                        else:
+                            ws.cell(row=90, column=col, value=None)
+                    else:
+                        ws.cell(row=90, column=col, value=None)
+                except Exception as ex:
+                    logger.warning(f"Error mapping date {dt} to price: {ex}")
+                    ws.cell(row=90, column=col, value=None)
+                    
+        wb.save(filepath)
+        wb.close()
+        logger.info(f"Successfully aligned and updated {updated_count} historical share prices in 'Data Sheet' row 90.")
+    except Exception as e:
+        logger.error(f"Failed to update historical share prices in Excel: {e}")
+
+
 # ══════════════════════════════════════════════════════════════════
 # PUBLIC ENTRY POINT
 # ══════════════════════════════════════════════════════════════════
@@ -6479,7 +6594,9 @@ def generate_financial_model(
     logger.info(f"🚀 PIPELINE START | {company_name} ({nse_code}) | Sector: {sector}")
 
     screener_path = download_screener_excel(nse_code, output_dir, sc_user, sc_pass)
+    update_screener_excel_prices_with_yfinance(screener_path, nse_code)
     screener_data = extract_screener_data(screener_path)
+
     market_text = fetch_market_data(nse_code)
 
     model_json = call_claude_api(
