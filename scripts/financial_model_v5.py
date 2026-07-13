@@ -4098,6 +4098,7 @@ def mk_fin_summary(wb, ctx):
     _ext_section_divider(ws, r, ncols, "VALUATIONS (AT CMP)")
     r += 1
     alt["v"] = False
+
     # P/E, P/B, P/S, EV/EBITDA = dynamically resolved by listed price of that year
     pe_formulas = []
     pb_formulas = []
