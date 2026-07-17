@@ -847,23 +847,30 @@ export async function createResearchReport(input: {
   company_name: string;
   nse_symbol: string;
 }): Promise<ResearchReport> {
+
+  console.log("========== CREATE RESEARCH REPORT ==========");
+  console.log("Input:", input);
+  console.log("nse_symbol =", input.nse_symbol);
+
   const { data, error } = await supabase
-    .from('research_reports')
+    .from("research_reports")
     .insert({
       session_id: input.session_id,
       user_email: input.user_email,
       company_name: input.company_name,
       nse_symbol: input.nse_symbol,
-      status: 'generating',
+      status: "generating",
     })
     .select()
     .single();
 
   if (error) {
-    throw new Error(`Failed to create report: ${error.message}`);
+    console.error("========== SUPABASE ERROR ==========");
+    console.error(JSON.stringify(error, null, 2));
+    throw error;
   }
 
-  return data;
+  return data as ResearchReport;
 }
 
 /**
