@@ -78,12 +78,15 @@ export async function generateFinancialModel(
   let jobId: string | null = null;
 
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15_000); // 15 s to enqueue
     const asyncResp = await fetch(`${FM_PROXY_URL}/generate-async`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody),
-      signal: AbortSignal.timeout(15_000), // 15 s to enqueue
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
 
     if (asyncResp.ok) {
       const asyncData = await asyncResp.json() as Record<string, unknown>;
@@ -108,9 +111,12 @@ export async function generateFinancialModel(
     while (Date.now() - startedAt < MAX_WAIT_MS) {
       await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10_000);
       const statusResp = await fetch(`${FM_PROXY_URL}/job/${jobId}`, {
-        signal: AbortSignal.timeout(10_000),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
 
       if (statusResp.status === 404) {
         consecutive404s++;
@@ -338,19 +344,23 @@ export async function createVault(ticker: string, sector: string): Promise<Vault
 
   console.log('[API] Creating vault with:', requestBody);
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 240_000); // 240s guard — n8n must respond within 4 minutes
   const response = await fetch(`${N8N_BASE_URL}/webhook/create-folder`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(requestBody),
-    signal: AbortSignal.timeout(240_000), // 240s guard — n8n must respond within 4 minutes
+    signal: controller.signal,
   }).catch((err: unknown) => {
-    if (err instanceof Error && err.name === 'TimeoutError') {
+    clearTimeout(timeoutId);
+    if (err instanceof Error && err.name === 'AbortError') {
       throw new Error('Drive vault creation timed out after 4 minutes. Check that your n8n workflow is running and the webhook is responsive.');
     }
     throw err;
   });
+  clearTimeout(timeoutId);
 
   console.log('[API] Response status:', response.status);
   console.log('[API] Response headers:', Object.fromEntries(response.headers.entries()));
