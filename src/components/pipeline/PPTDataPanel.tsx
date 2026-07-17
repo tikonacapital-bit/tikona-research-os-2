@@ -279,10 +279,15 @@ export default function PPTDataPanel({
 
   useEffect(() => {
     console.log('[PPTDataPanel] useEffect triggered, hasLoadedRef.current:', hasLoadedRef.current);
+    // Reset hasLoadedRef if reportId changes from null to a value
+    if (reportId && hasLoadedRef.current) {
+      console.log('[PPTDataPanel] Resetting hasLoadedRef because reportId is now available');
+      hasLoadedRef.current = false;
+    }
     if (hasLoadedRef.current) return;
     hasLoadedRef.current = true;
     loadPlaceholders();
-  }, [loadPlaceholders]);
+  }, [loadPlaceholders, reportId]);
 
   const handleReset = useCallback(async () => {
     if (!reportId || !serviceAvailable) return;
