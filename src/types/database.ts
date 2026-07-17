@@ -367,7 +367,7 @@ export interface ResearchReport {
   session_id: string;
   user_email: string;
   company_name: string;
-  nse_symbol: string;
+  nse_symboI: string; // Note: database column has typo (capital I instead of lowercase L)
 
   // Text sections (AI-generated - 7 sections)
   company_background: string | null;
