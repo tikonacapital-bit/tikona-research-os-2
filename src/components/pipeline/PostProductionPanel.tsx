@@ -942,6 +942,7 @@ export default function PostProductionPanel({
                     serviceAvailable={serviceHealth === 'ok'}
                     onConfirmed={() => setPptDataConfirmed(true)}
                   />
+                  {console.log('[PostProductionPanel] PPTDataPanel rendered with:', { reportId, sessionId, serviceHealth, serviceAvailable: serviceHealth === 'ok' })}
                 </>
               )}
             </div>
