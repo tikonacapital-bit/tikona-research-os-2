@@ -244,11 +244,17 @@ export default function PPTDataPanel({
   const hasLoadedRef = useRef(false);
 
   const loadPlaceholders = useCallback(async () => {
-    if (!reportId || !serviceAvailable) return;
+    if (!reportId || !serviceAvailable) {
+      console.log('[PPTDataPanel] Skipping load - reportId:', reportId, 'serviceAvailable:', serviceAvailable);
+      return;
+    }
     setLoading(true);
     setLoadError(null);
     try {
+      console.log('[PPTDataPanel] Fetching placeholders for reportId:', reportId, 'sessionId:', sessionId);
       const result = await fetchPptPlaceholders(reportId, sessionId);
+      console.log('[PPTDataPanel] Received result:', result);
+      
       // Filter to only keep editable keys present in PLACEHOLDER_GROUPS
       const filtered: Record<string, string> = {};
       for (const [k, v] of Object.entries(result.placeholders)) {
@@ -256,6 +262,7 @@ export default function PPTDataPanel({
           filtered[k] = v != null ? String(v) : '';
         }
       }
+      console.log('[PPTDataPanel] Filtered values count:', Object.keys(filtered).length, 'Total placeholders:', Object.keys(result.placeholders).length);
       setValues(filtered);
       setWarnings(result.warnings || []);
       if (result.has_saved_overrides) {
@@ -263,6 +270,7 @@ export default function PPTDataPanel({
         onConfirmedRef.current(filtered);
       }
     } catch (err) {
+      console.error('[PPTDataPanel] Load error:', err);
       setLoadError(err instanceof Error ? err.message : 'Failed to load PPT data');
     } finally {
       setLoading(false);
