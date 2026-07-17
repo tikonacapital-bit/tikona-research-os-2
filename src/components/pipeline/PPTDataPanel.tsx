@@ -278,6 +278,7 @@ export default function PPTDataPanel({
   }, [reportId, sessionId, serviceAvailable]);
 
   useEffect(() => {
+    console.log('[PPTDataPanel] useEffect triggered, hasLoadedRef.current:', hasLoadedRef.current);
     if (hasLoadedRef.current) return;
     hasLoadedRef.current = true;
     loadPlaceholders();
