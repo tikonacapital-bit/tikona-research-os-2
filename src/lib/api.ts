@@ -868,7 +868,7 @@ export async function createResearchReport(input: {
       session_id: input.session_id,
       user_email: input.user_email,
       company_name: input.company_name,
-      nse_symboI: input.nse_symbol, // Note: database column has typo (capital I)
+      nse_symbol: input.nse_symbol,
       status: "generating",
     })
     .select()
