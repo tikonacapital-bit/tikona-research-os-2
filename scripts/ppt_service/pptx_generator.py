@@ -4814,13 +4814,21 @@ def inject_story_chart_slides(
     return injected
 
 
-def inject_financial_summary_slide(pptx_path: str, company_name: str, *, excel_path: str | None = None) -> int:
+def inject_financial_summary_slide(
+    pptx_path: str,
+    company_name: str,
+    *,
+    excel_path: str | None = None,
+    warnings: list[str] | None = None,
+) -> int:
     if not excel_path:
         return 0
     try:
         img_bytes = _render_financial_summary_dashboard(excel_path, company_name)
     except Exception as exc:
-        logger.warning("Financial summary dashboard render failed: %s", exc)
+        logger.exception("Financial summary dashboard render failed")
+        if warnings is not None:
+            warnings.append(f"Financial summary dashboard render failed: {exc!r}")
         return 0
     if not img_bytes:
         return 0
@@ -4848,6 +4856,7 @@ def fill_master_template(
     fin_model: dict,
     company_name: str = "",
     summary_image: bytes | None = None,
+    warnings: list[str] | None = None,
 ) -> None:
     """Fill master_template.pptx per-slide with text replacements, chart data,
     financial tables, and generated chart images.
@@ -4873,6 +4882,8 @@ def fill_master_template(
         literal_disclosure_subs.append(
             ("(Premier Energies Ltd.)", f"({company_name})")
         )
+
+    summary_image_shape_found = False
 
     for slide_idx, slide in enumerate(prs.slides, start=1):
         slide_type = _detect_slide_type(slide)
@@ -4903,6 +4914,7 @@ def fill_master_template(
                 and shape.text_frame
                 and shape.text_frame.text.strip() == "{{financial_summary_image}}"
             ):
+                summary_image_shape_found = True
                 image_insertions.append((shape, summary_image))
                 continue
 
@@ -4957,7 +4969,16 @@ def fill_master_template(
             try:
                 _insert_image_into_shape(slide, shape, img_bytes)
             except Exception as e:
-                logger.warning("Image insert failed for '%s': %s", shape.name, e)
+                logger.exception("Image insert failed for '%s'", shape.name)
+                if warnings is not None:
+                    warnings.append(f"Image insert failed for '{shape.name}' on slide {slide_idx}: {e!r}")
+
+    if summary_image and not summary_image_shape_found and warnings is not None:
+        warnings.append(
+            "Financial summary image was rendered but no shape with text "
+            "'{{financial_summary_image}}' was found in the template — check "
+            "the placeholder text/formatting on slide 1."
+        )
 
     prs.save(output_path)
 
@@ -5307,13 +5328,15 @@ def generate_pptx_for_report(report_id: str, session_id: str, *, use_mock: bool 
             try:
                 summary_image = _render_financial_summary_dashboard(str(excel_path), company.get("name", ""))
             except Exception as exc:
-                logger.warning("Financial summary dashboard render failed before template fill: %s", exc)
+                logger.exception("Financial summary dashboard render failed before template fill")
+                warnings.append(f"Financial summary dashboard render failed before template fill: {exc!r}")
 
         if template_path.exists():
             fill_master_template(
                 str(template_path), result_pptx_path, replacements, fin_model,
                 company_name=company.get("name", ""),
                 summary_image=summary_image,
+                warnings=warnings,
             )
         else:
             raise RuntimeError(f"Master template not found at {template_path}")
@@ -5438,6 +5461,7 @@ def generate_pptx_for_report(report_id: str, session_id: str, *, use_mock: bool 
                 result_pptx_path,
                 company.get("name", ""),
                 excel_path=str(excel_path),
+                warnings=warnings,
             )
             if summary_injection_count:
                 logger.info(
@@ -5459,6 +5483,7 @@ def generate_pptx_for_report(report_id: str, session_id: str, *, use_mock: bool 
                         result_pptx_path,
                         company.get("name", ""),
                         excel_path=str(excel_path),
+                        warnings=warnings,
                     )
                     if summary_injection_count:
                         logger.info(
