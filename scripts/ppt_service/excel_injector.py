@@ -363,6 +363,85 @@ def inject_excel_visuals_into_ppt(excel_path: str, ppt_path: str) -> int:
     return 0
 
 
+def extract_json_from_excel(excel_path: str) -> dict | None:
+    """Extract JSON data from Excel file for financial model processing.
+    
+    Looks for a hidden '_json' sheet or parses data from visible sheets
+    to construct the financial model JSON structure.
+    """
+    path = Path(excel_path)
+    if not path.exists():
+        logger.warning("Excel file not found: %s", excel_path)
+        return None
+
+    try:
+        wb = openpyxl.load_workbook(str(path), data_only=True, read_only=False)
+    except Exception as e:
+        logger.error("Failed to open Excel workbook: %s", e)
+        return None
+
+    # Try to find hidden JSON sheet first
+    json_sheet = None
+    for sheet_name in wb.sheetnames:
+        if sheet_name.lower() in ('_json', 'json', 'model_json', 'financial_model_json'):
+            json_sheet = wb[sheet_name]
+            break
+    
+    if json_sheet:
+        logger.info("Found JSON sheet: %s", json_sheet.title)
+        try:
+            # Try to parse JSON from the first cell
+            json_text = None
+            for row in json_sheet.iter_rows(values_only=True):
+                if row and row[0]:
+                    json_text = str(row[0])
+                    break
+            
+            if json_text:
+                import json
+                return json.loads(json_text)
+        except Exception as e:
+            logger.warning("Failed to parse JSON from sheet: %s", e)
+    
+    # Fallback: construct basic JSON structure from visible sheets
+    logger.info("No JSON sheet found, constructing basic structure from visible sheets")
+    result = {
+        "assumptions": {},
+        "projections": {},
+        "historical_ratios": {},
+        "metrics": {},
+        "valuation": {}
+    }
+    
+    # Try to extract basic data from common sheets
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        if sheet_name.lower() in ('assumptions', 'inputs'):
+            result["assumptions"] = _extract_sheet_data(ws)
+        elif sheet_name.lower() in ('projections', 'forecast'):
+            result["projections"] = _extract_sheet_data(ws)
+        elif sheet_name.lower() in ('historical', 'ratios'):
+            result["historical_ratios"] = _extract_sheet_data(ws)
+    
+    wb.close()
+    return result if any(result.values()) else None
+
+
+def _extract_sheet_data(ws) -> dict:
+    """Extract basic key-value data from a worksheet."""
+    data = {}
+    for row in ws.iter_rows(max_row=20, values_only=True):
+        if row and row[0] and row[1]:
+            key = str(row[0]).strip()
+            value = row[1]
+            if value is not None:
+                try:
+                    data[key] = float(value) if isinstance(value, (int, float)) else str(value)
+                except (ValueError, TypeError):
+                    data[key] = str(value)
+    return data
+
+
 def _com_inject(excel_path: str, ppt_path: str) -> int:
     """COM-based injection (Windows only). Returns count of visuals injected."""
     import os

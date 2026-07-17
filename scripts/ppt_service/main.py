@@ -74,6 +74,7 @@ class GeneratePptxRequest(BaseModel):
     reportId: str
     sessionId: str
     useMock: bool = False
+    financialModelFileUrl: str | None = None
 
 
 class PreviewPlaceholdersRequest(BaseModel):
@@ -129,9 +130,9 @@ def preview_placeholders(req: PreviewPlaceholdersRequest):
 @app.post("/generate-pptx", response_model=GeneratePptxResponse)
 def generate_pptx(req: GeneratePptxRequest):
     t0 = time.time()
-    logger.info("POST /generate-pptx report=%s session=%s use_mock=%s", req.reportId, req.sessionId, req.useMock)
+    logger.info("POST /generate-pptx report=%s session=%s use_mock=%s financial_model_url=%s", req.reportId, req.sessionId, req.useMock, req.financialModelFileUrl)
     try:
-        result = generate_pptx_for_report(req.reportId, req.sessionId, use_mock=req.useMock)
+        result = generate_pptx_for_report(req.reportId, req.sessionId, use_mock=req.useMock, financial_model_url=req.financialModelFileUrl)
         return GeneratePptxResponse(**result)
     except Exception as exc:
         duration = round(time.time() - t0, 2)

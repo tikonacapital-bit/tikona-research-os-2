@@ -5145,7 +5145,35 @@ def recalculate_excel_formulas(excel_path: Path) -> None:
                 pass
 
 
-def generate_pptx_for_report(report_id: str, session_id: str, *, use_mock: bool = False) -> dict:
+def _download_model_from_excel(url: str, warnings: list[str]) -> dict | None:
+    """Download Excel file from URL and extract JSON data using excel_injector."""
+    try:
+        logger.info("Downloading Excel from URL: %s", url)
+        with urllib.request.urlopen(url) as response:
+            excel_data = response.read()
+        
+        # Use excel_injector to extract JSON from Excel
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+            tmp.write(excel_data)
+            tmp_path = tmp.name
+        
+        try:
+            # Extract JSON from Excel using excel_injector
+            model_json = excel_injector.extract_json_from_excel(tmp_path)
+            logger.info("Successfully extracted JSON from Excel")
+            return model_json
+        finally:
+            import os
+            os.unlink(tmp_path)
+            
+    except Exception as exc:
+        logger.warning("Failed to download/extract Excel from URL: %s", exc)
+        warnings.append(f"Could not download/extract financial model Excel from URL: {exc}")
+        return None
+
+
+def generate_pptx_for_report(report_id: str, session_id: str, *, use_mock: bool = False, financial_model_url: str | None = None) -> dict:
     """Top-level orchestrator. Returns the response payload for /generate-pptx."""
     t0 = time.time()
     warnings: list[str] = []
@@ -5154,10 +5182,21 @@ def generate_pptx_for_report(report_id: str, session_id: str, *, use_mock: bool 
     report, session, sections = _fetch_inputs(client, report_id, session_id)
 
     ticker = (report.get("nse_symbol") or "UNKNOWN").upper()
-    logger.info("generate_pptx start report=%s ticker=%s sections=%d", report_id, ticker, len(sections))
+    logger.info("generate_pptx start report=%s ticker=%s sections=%d financial_model_url=%s", report_id, ticker, len(sections), financial_model_url)
 
     company = _build_company(report, session, sections)
-    model_json = _download_model_json(client, ticker, warnings)
+    
+    # If financial_model_url is provided, download Excel and extract data
+    if financial_model_url:
+        logger.info("Downloading financial model from Excel: %s", financial_model_url)
+        try:
+            model_json = _download_model_from_excel(financial_model_url, warnings)
+        except Exception as e:
+            logger.warning("Failed to download Excel model, falling back to JSON: %s", e)
+            model_json = _download_model_json(client, ticker, warnings)
+    else:
+        model_json = _download_model_json(client, ticker, warnings)
+    
     metadata = _build_metadata(report, sections, model_json=model_json)
     fin_model = _build_financial_model(ticker, model_json, warnings)
     fin_model = _enrich_financial_model_for_house_deck(fin_model, report, sections, metadata)
