@@ -386,6 +386,7 @@ export default function PostProductionPanel({
         reportId,
         sessionId,
         useMock,
+        financialModelFileUrl,
       });
 
       if (result.status !== 'success' || !result.pptx_file_url) {

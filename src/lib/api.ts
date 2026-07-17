@@ -1311,6 +1311,7 @@ export interface GeneratePptxInput {
   reportId: string;
   sessionId: string;
   useMock?: boolean;
+  financialModelFileUrl?: string | null;
 }
 
 export interface GeneratePptxResult {
@@ -1377,6 +1378,7 @@ export async function generatePptx(
       reportId: input.reportId,
       sessionId: input.sessionId,
       useMock: input.useMock ?? false,
+      financialModelFileUrl: input.financialModelFileUrl ?? null,
     }),
   });
 
