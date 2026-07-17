@@ -145,14 +145,21 @@ export default function PostProductionPanel({
   useEffect(() => {
     let cancelled = false;
     setServiceHealth('checking');
-    fetch(`${PPT_SERVICE_URL}/health`, { signal: AbortSignal.timeout(5000) })
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    fetch(`${PPT_SERVICE_URL}/health`, { signal: controller.signal })
       .then((r) => {
+        clearTimeout(timeoutId);
         if (!cancelled) setServiceHealth(r.ok ? 'ok' : 'down');
       })
       .catch(() => {
+        clearTimeout(timeoutId);
         if (!cancelled) setServiceHealth('down');
       });
-    return () => { cancelled = true; };
+    return () => { 
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
   }, []);
 
   // Prevent browser reload/close from aborting active client-side generation processes
@@ -643,6 +650,8 @@ export default function PostProductionPanel({
       // receive the HTTP response — we only need to confirm the kick-off.
       let kickoffOk = false;
       try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30_000);
         const response = await fetch(`${N8N_BASE}/generate-video`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -651,8 +660,9 @@ export default function PostProductionPanel({
             company_name: companyName,
             nse_symbol: nseSymbol,
           }),
-          signal: AbortSignal.timeout(30_000), // 30 s max for kickoff
+          signal: controller.signal,
         });
+        clearTimeout(timeoutId);
         kickoffOk = response.ok;
         if (!response.ok) {
           console.warn('[Video] Kickoff response not OK:', response.status);
