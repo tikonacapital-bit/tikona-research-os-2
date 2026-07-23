@@ -51,6 +51,25 @@ import PPTDataPanel from './PPTDataPanel';
 
 const N8N_BASE = 'https://n8n.tikonacapital.com/webhook';
 
+// The n8n media-script workflow occasionally has its underlying LLM call
+// refused (e.g. by an alcohol/content-policy filter) and writes the refusal
+// text straight into the script column. Catch that here so it isn't shown
+// to the user as a successfully generated script.
+const REFUSAL_PATTERNS = [
+  /^i'?m sorry,? i can'?t/i,
+  /^i'?m sorry,? but i can'?t/i,
+  /^i cannot assist/i,
+  /^i can'?t assist with that/i,
+  /^i'?m unable to/i,
+  /^as an ai( language model)?,? i/i,
+];
+
+function isLikelyRefusal(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  return REFUSAL_PATTERNS.some((pattern) => pattern.test(trimmed));
+}
+
 interface PostProductionPanelProps {
   sessionId: string;
   companyName: string;
@@ -486,7 +505,10 @@ export default function PostProductionPanel({
       toast.info('Script generation started — may take 1-2 minutes...');
       const script = await pollSupabaseColumn('podcast_script');
 
-      if (script) {
+      if (script && isLikelyRefusal(script)) {
+        await updatePodcastScript(reportId, '');
+        toast.error('Script generation was refused by the AI model. Try regenerating — this can happen with certain content (e.g. alcohol-brand names).');
+      } else if (script) {
         setPodcastScript(script);
         setLastSavedScript(script);
         toast.success('Podcast script generated!');
@@ -586,7 +608,10 @@ export default function PostProductionPanel({
       if (!response.ok) throw new Error('Video script generation failed');
       toast.info('Video script generation started — may take 1-2 minutes...');
       const script = await pollSupabaseColumn('video_script');
-      if (script) {
+      if (script && isLikelyRefusal(script)) {
+        await updateVideoScript(reportId, '');
+        toast.error('Video script generation was refused by the AI model. Try regenerating — this can happen with certain content (e.g. alcohol-brand names).');
+      } else if (script) {
         setVideoScript(script);
         setLastSavedVideoScript(script);
         toast.success('Video script generated!');
