@@ -412,7 +412,7 @@ def _metric_chips(metadata: dict, fin_model: dict, company: dict) -> list[str]:
     thesis = fin_model.get("thesis") or {}
     score = thesis.get("saarthi_total")
     if score is not None:
-        add(f"{float(score):.0f} SAARTHI")
+        add(f"{_safe_float(score):.0f} SAARTHI")
 
     shares = metadata.get("shares_cr") or fin_model.get("metrics", {}).get("shares_cr")
     if shares:
@@ -584,11 +584,11 @@ def _build_metadata(report: dict, sections: list[dict], model_json: dict | None 
     )
     
     model_mcap = None
-    active_cmp = live_cmp or (float(model_json.get("cmp")) if model_json and model_json.get("cmp") is not None else None)
+    active_cmp = live_cmp or (_parse_number(model_json.get("cmp")) if model_json else None)
     if model_json:
-        m_shares = model_json.get("shares_cr")
+        m_shares = _parse_number(model_json.get("shares_cr"))
         if active_cmp is not None and m_shares is not None:
-            model_mcap = str(round(float(active_cmp) * float(m_shares), 2))
+            model_mcap = str(round(active_cmp * m_shares, 2))
 
     mcap_raw = _prefer(
         report.get("cs_market_cap"),
@@ -3116,13 +3116,13 @@ def inject_competitive_advantage_slide(pptx_path: str, *, excel_path: str | None
     revenue_chart = _render_peer_bar_chart(
         "Revenue FY26A (₹ Cr)",
         [r["company"].replace("GRAVITA INDIA LTD", "Gravita") for r in revenue_rows],
-        [float(r["values"][-1]) for r in revenue_rows],
+        [_safe_float(r["values"][-1]) for r in revenue_rows],
         percent=False,
     )
     margin_chart = _render_peer_bar_chart(
         "EBITDA Margin FY26A",
         [r["company"].replace("GRAVITA INDIA LTD", "Gravita") for r in margin_rows],
-        [float(r["values"][-1]) * 100 for r in margin_rows],
+        [_safe_float(r["values"][-1]) * 100 for r in margin_rows],
         percent=True,
     )
     prs = Presentation(pptx_path)
