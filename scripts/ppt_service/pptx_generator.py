@@ -189,6 +189,22 @@ def _parse_number(val: Any) -> float | None:
         return None
 
 
+def _safe_float(val: Any, default: float = 0.0) -> float:
+    """Best-effort float coercion for Excel/JSON-sourced values.
+
+    Sectors that don't have a given operational metric (e.g. "Plants" or
+    "Capacity Utilization" for a bank) fill the cell with a placeholder like
+    '-', 'N/A', or '' instead of leaving it None. A bare float(val) raises
+    ValueError on those; this falls back to `default` instead.
+    """
+    if val is None:
+        return default
+    if isinstance(val, (int, float)):
+        return float(val)
+    parsed = _parse_number(val)
+    return default if parsed is None else parsed
+
+
 def _normalize_rating(raw: str) -> str:
     up = (raw or "").upper()
     if "SELL" in up:
@@ -1527,7 +1543,7 @@ def map_replacements(company, metadata, fin_model, sections):
         latest_idx = _last_actual_index([str(y).strip() for y in (op.get("years") or [])])
         if latest_idx is not None:
             for vals in volumes.values():
-                seq = [float(v) if v is not None else 0.0 for v in (vals or [])]
+                seq = [_safe_float(v) for v in (vals or [])]
                 if latest_idx < len(seq):
                     latest_total_volume += seq[latest_idx]
     if countries and countries[-1] is not None:
@@ -2410,11 +2426,12 @@ def _build_slide6_pie_data(fin_model: dict) -> tuple[dict[str, float], dict[str,
     latest_actual_idx = _last_actual_index(years)
 
     revenue_mix_raw = operational.get("revenue_mix_pct") or {}
-    revenue_mix = {
-        str(k): float(v) * 100.0 if float(v) <= 1.0 else float(v)
-        for k, v in revenue_mix_raw.items()
-        if v not in (None, "")
-    }
+    revenue_mix: dict[str, float] = {}
+    for k, v in revenue_mix_raw.items():
+        parsed = _parse_number(v)
+        if parsed is None:
+            continue
+        revenue_mix[str(k)] = parsed * 100.0 if parsed <= 1.0 else parsed
 
     volume_segments = operational.get("volume_segments") or {}
     ebit_mix: dict[str, float] = {}
@@ -2422,7 +2439,7 @@ def _build_slide6_pie_data(fin_model: dict) -> tuple[dict[str, float], dict[str,
         total = 0.0
         raw_points: dict[str, float] = {}
         for raw_name, series in volume_segments.items():
-            vals = [float(v) if v is not None else 0.0 for v in (series or [])]
+            vals = [_safe_float(v) for v in (series or [])]
             if latest_actual_idx >= len(vals):
                 continue
             name = str(raw_name).replace(" Recycling", "").strip()
@@ -2458,7 +2475,7 @@ def _render_pie_chart(title: str, data: dict[str, float]) -> bytes | None:
         return None
 
     labels = list(data.keys())
-    values = [max(0.0, float(v)) for v in data.values()]
+    values = [max(0.0, _safe_float(v)) for v in data.values()]
     total = sum(values)
     if total <= 0:
         return None
@@ -4241,7 +4258,7 @@ def _last_five_actual_periods(periods: list[str], values: list[float]) -> tuple[
 
 def _last_five_actual_operational(op: dict, key: str) -> tuple[list[str], list[float]]:
     years = [str(y).strip() for y in (op.get("years") or [])]
-    values = [float(v) if v is not None else 0.0 for v in (op.get(key) or [])]
+    values = [_safe_float(v) for v in (op.get(key) or [])]
     return _last_five_actual_periods(years, values)
 
 
@@ -4252,7 +4269,7 @@ def _last_five_actual_segment_series(op: dict) -> tuple[list[str], dict[str, lis
     segments = op.get("volume_segments") or {}
     out: dict[str, list[float]] = {}
     for name, raw_vals in segments.items():
-        vals = [float(v) if v is not None else 0.0 for v in (raw_vals or [])]
+        vals = [_safe_float(v) for v in (raw_vals or [])]
         out[name] = [vals[idx] for idx in actual_idx if idx < len(vals)]
     return actual_years, out
 
@@ -4452,7 +4469,7 @@ def _render_story_chart_collage(
                 if geo_year_axis:
                     bottoms = [0.0] * len(geo_year_axis)
                     for idx, (name, vals) in enumerate(list(geo_series.items())[:5]):
-                        aligned = [float(vals[i]) if i < len(vals) and vals[i] is not None else 0.0 for i in actual_idx]
+                        aligned = [_safe_float(vals[i]) if i < len(vals) else 0.0 for i in actual_idx]
                         axes[1, 0].bar(geo_year_axis, aligned, bottom=bottoms,
                                        color=_PALETTE[idx % len(_PALETTE)], label=name)
                         bottoms = [b + a for b, a in zip(bottoms, aligned)]
@@ -4565,7 +4582,7 @@ def _render_story_chart_collage(
                     bottoms = [0.0] * len(years)
                     for s_idx, s_name in enumerate(series_names):
                         s_vals = stacked_values.get(s_name) or []
-                        s_vals_num = [float(v) if v is not None else 0.0 for v in s_vals]
+                        s_vals_num = [_safe_float(v) for v in s_vals]
                         s_vals_num = s_vals_num[:len(years)] + [0.0] * (len(years) - len(s_vals_num))
                         ax.bar(years, s_vals_num, bottom=bottoms,
                                color=_PALETTE[s_idx % len(_PALETTE)], label=s_name)
@@ -4576,7 +4593,7 @@ def _render_story_chart_collage(
 
                 elif chart_type == "donut":
                     raw_vals = chart.get("values") or []
-                    sizes = [float(v) if v is not None else 0.0 for v in raw_vals]
+                    sizes = [_safe_float(v) for v in raw_vals]
                     labels = [years[i] if i < len(years) else f"Slice {i}" for i in range(len(sizes))]
                     valid_pairs = [(l, s) for l, s in zip(labels, sizes) if s > 0]
                     if valid_pairs:
@@ -4586,7 +4603,7 @@ def _render_story_chart_collage(
 
                 elif chart_type == "line":
                     raw_vals = chart.get("values") or []
-                    vals = [float(v) if v is not None else 0.0 for v in raw_vals]
+                    vals = [_safe_float(v) for v in raw_vals]
                     vals = vals[:len(years)] + [0.0] * (len(years) - len(vals))
                     ax.plot(years, vals, color="#1F4690", linewidth=2.5, marker="o")
                     _style_axes(ax, title, ylabel=ylabel)
@@ -4594,7 +4611,7 @@ def _render_story_chart_collage(
 
                 else:  # "bar" chart
                     raw_vals = chart.get("values") or []
-                    vals = [float(v) if v is not None else 0.0 for v in raw_vals]
+                    vals = [_safe_float(v) for v in raw_vals]
                     vals = vals[:len(years)] + [0.0] * (len(years) - len(vals))
                     ax.bar(years, vals, color="#1F4690")
                     _style_axes(ax, title, ylabel=ylabel)
@@ -4631,7 +4648,7 @@ def _render_story_chart_collage(
                 return [], []
             pairs = [(y, v) for y, v in zip(hr_years, vals) if v is not None and "E" not in y.upper()]
             pairs = pairs[-5:]
-            return [p for p, _ in pairs], [float(v) for _, v in pairs]
+            return [p for p, _ in pairs], [_safe_float(v) for _, v in pairs]
 
         # 1. Revenue with 5-yr CAGR in title.
         cagr_suffix = ""

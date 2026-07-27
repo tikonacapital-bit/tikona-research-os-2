@@ -487,7 +487,7 @@ def _saarthi_radar(fin_model: dict, company_name: str) -> bytes | None:
     if isinstance(saarthi, dict) and "dimensions" in saarthi:
         dims = saarthi["dimensions"]
         labels = [d.get("name", d.get("code", "?")) for d in dims]
-        scores = [min(float(d.get("score", 0)) / float(d.get("max_score", 15)) * 100, 100)
+        scores = [min((_safe_float(d.get("score", 0)) or 0) / (_safe_float(d.get("max_score", 15)) or 15) * 100, 100)
                   for d in dims]
     else:
         # Flat dict: S_sector_quality: 12, A_accounting_quality: 10 ...
@@ -506,7 +506,7 @@ def _saarthi_radar(fin_model: dict, company_name: str) -> bytes | None:
             v = saarthi.get(k)
             if v is not None:
                 labels.append(label)
-                scores.append(min(float(v) / 15 * 100, 100))
+                scores.append(min((_safe_float(v) or 0) / 15 * 100, 100))
 
     if len(labels) < 3:
         return None
