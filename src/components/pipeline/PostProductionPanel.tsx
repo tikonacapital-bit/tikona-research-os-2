@@ -70,6 +70,23 @@ function isLikelyRefusal(text: string): boolean {
   return REFUSAL_PATTERNS.some((pattern) => pattern.test(trimmed));
 }
 
+// The generated video is stored as a Google Drive file. Drive's
+// webViewLink/webContentLink URLs serve an HTML preview page, not raw video
+// bytes, so a native <video src="..."> just shows a black 0:00 player.
+// Extract the file ID and use Drive's embeddable preview iframe instead.
+function extractDriveFileId(url: string): string | null {
+  const patterns = [
+    /\/file\/d\/([a-zA-Z0-9_-]+)/,
+    /[?&]id=([a-zA-Z0-9_-]+)/,
+    /\/d\/([a-zA-Z0-9_-]+)/,
+  ];
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match) return match[1];
+  }
+  return null;
+}
+
 interface PostProductionPanelProps {
   sessionId: string;
   companyName: string;
@@ -1479,11 +1496,28 @@ export default function PostProductionPanel({
               </Button>
             ) : (
               <div className="space-y-3">
-                <video controls src={videoFileUrl} className="w-full max-h-48 rounded-lg bg-black" />
+                {(() => {
+                  const driveFileId = extractDriveFileId(videoFileUrl);
+                  return driveFileId ? (
+                    <iframe
+                      src={`https://drive.google.com/file/d/${driveFileId}/preview`}
+                      allow="autoplay"
+                      className="w-full h-48 rounded-lg bg-black border-0"
+                    />
+                  ) : (
+                    <video controls src={videoFileUrl} className="w-full max-h-48 rounded-lg bg-black" />
+                  );
+                })()}
                 <div className="flex flex-wrap items-center gap-3">
                   <a
-                    href={videoFileUrl}
+                    href={
+                      extractDriveFileId(videoFileUrl)
+                        ? `https://drive.google.com/uc?export=download&id=${extractDriveFileId(videoFileUrl)}`
+                        : videoFileUrl
+                    }
                     download
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 hover:bg-neutral-50 text-neutral-700 text-xs font-medium h-8 px-3"
                   >
                     <Download className="h-3.5 w-3.5" /> Download MP4
