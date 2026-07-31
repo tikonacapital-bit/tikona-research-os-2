@@ -272,6 +272,8 @@ export default function PostProductionPanel({
     if (report.is_published) {
       setIsPublished(true);
       if (report.plan) setSelectedPlan(report.plan);
+    } else {
+      setIsPublished(false);
     }
   }
 

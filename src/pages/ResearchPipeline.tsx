@@ -1054,6 +1054,7 @@ export default function ResearchPipeline() {
       await unpublishReport(report.report_id);
       await transitionPipelineStatus(sessionId, 'stage2_approved', pipelineStatus);
       setPipelineStatus('stage2_approved');
+      setInitialReport({ ...report, is_published: false, published_at: null });
       toast.success('Report reverted to draft.');
     } catch (err) {
       toast.error(`Unpublish failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
