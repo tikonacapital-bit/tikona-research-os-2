@@ -67,6 +67,52 @@ PER_YEAR_ASSUMPTION_KEYS = [
     "inventory_days",
 ]
 
+PROJECTION_LIST_KEYS = [
+    "net_block",
+    "cwip",
+    "investments",
+    "other_assets",
+    "share_capital",
+    "reserves",
+    "borrowings",
+    "other_liabilities",
+    "cfo",
+    "cfi",
+    "cff",
+]
+
+
+def clean_numeric(val) -> Optional[float]:
+    """Coerce a Claude-provided assumption/projection value into a float.
+
+    Claude occasionally formats numbers as strings with thousands separators,
+    parenthesized negatives, currency/percent symbols, or placeholder text
+    ("N/A", "-", "TBD") instead of a bare number. Pydantic's Optional[float]
+    can't coerce those and raises "Input should be a valid number", which
+    previously killed the whole financial-model generation for that company.
+    Cleaning once here — for any field, any company — is more robust than
+    tightening the prompt and hoping the model always complies.
+    """
+    if val is None or isinstance(val, bool):
+        return None
+    if isinstance(val, (int, float)):
+        return float(val)
+    if isinstance(val, str):
+        cleaned = val.strip()
+        if cleaned.lower() in ("", "-", "n/a", "na", "null", "none", "undefined", "tbd", "nil"):
+            return None
+        negative = cleaned.startswith("(") and cleaned.endswith(")")
+        if negative:
+            cleaned = cleaned[1:-1]
+        cleaned = cleaned.replace(",", "").replace("₹", "").replace("%", "").strip()
+        try:
+            num = float(cleaned)
+        except ValueError:
+            return None
+        return -num if negative else num
+    return None
+
+
 DEFAULT_ROW_MAP = {
     "sales": 17,
     "raw_material": 18,
@@ -1588,12 +1634,30 @@ def normalize_model_output(model: dict, screener_data: dict) -> dict:
     asmp["projection_years"] = projection_years
     proj["years"] = proj.get("years") or projection_years
 
+    for key in PROJECTION_LIST_KEYS:
+        raw_list = proj.get(key)
+        if isinstance(raw_list, list):
+            cleaned_list = []
+            for v in raw_list:
+                cv = clean_numeric(v)
+                if cv is None and v is not None:
+                    logger.warning("⚠ projections.%s had non-numeric value %r — coerced to null for %s", key, v, company_name)
+                cleaned_list.append(cv)
+            proj[key] = cleaned_list
+
     for key in PER_YEAR_ASSUMPTION_KEYS:
-        raw = asmp.get(key)
-        if not isinstance(raw, dict) or len(raw) == 0:
+        raw_in = asmp.get(key)
+        if not isinstance(raw_in, dict) or len(raw_in) == 0:
             logger.warning("⚠ %s missing entirely — projections will use 0 for this key for %s", key, company_name)
             asmp.pop(key, None)
             continue
+
+        raw: dict[str, Optional[float]] = {}
+        for year, v in raw_in.items():
+            cv = clean_numeric(v)
+            if cv is None and v is not None:
+                logger.warning("⚠ assumptions.%s.%s had non-numeric value %r — treated as missing for %s", key, year, v, company_name)
+            raw[year] = cv
 
         normalized_map: dict[str, float] = {}
         known_positions = [(idx, year, raw.get(year)) for idx, year in enumerate(projection_years) if raw.get(year) is not None]
@@ -1713,32 +1777,16 @@ def normalize_model_output(model: dict, screener_data: dict) -> dict:
             normalized["catalyst_timeline"] = []
 
     # ── Normalize peer metrics ───────────────────────────────────────────
-    def clean_float(val) -> Optional[float]:
-        if val is None:
-            return None
-        if isinstance(val, str):
-            cleaned = val.strip().replace(",", "")
-            if cleaned.lower() in ("", "-", "n/a", "null", "none", "undefined"):
-                return None
-            try:
-                return float(cleaned)
-            except ValueError:
-                return None
-        try:
-            return float(val)
-        except (ValueError, TypeError):
-            return None
-
     raw_peers = normalized.get("peers")
     if isinstance(raw_peers, list):
         cleaned_peers = []
         for p in raw_peers:
             if isinstance(p, dict):
                 cleaned_p = dict(p)
-                cleaned_p["mcap_cr"] = clean_float(p.get("mcap_cr"))
-                cleaned_p["pe"] = clean_float(p.get("pe"))
-                cleaned_p["ev_ebitda"] = clean_float(p.get("ev_ebitda"))
-                cleaned_p["roe_pct"] = clean_float(p.get("roe_pct"))
+                cleaned_p["mcap_cr"] = clean_numeric(p.get("mcap_cr"))
+                cleaned_p["pe"] = clean_numeric(p.get("pe"))
+                cleaned_p["ev_ebitda"] = clean_numeric(p.get("ev_ebitda"))
+                cleaned_p["roe_pct"] = clean_numeric(p.get("roe_pct"))
                 cleaned_peers.append(cleaned_p)
             else:
                 cleaned_peers.append(p)
@@ -1750,17 +1798,17 @@ def normalize_model_output(model: dict, screener_data: dict) -> dict:
         for p in raw_peers_detailed:
             if isinstance(p, dict):
                 cleaned_p = dict(p)
-                cleaned_p["mcap_cr"] = clean_float(p.get("mcap_cr"))
-                cleaned_p["pe"] = clean_float(p.get("pe"))
-                cleaned_p["pb"] = clean_float(p.get("pb"))
-                cleaned_p["roce_pct"] = clean_float(p.get("roce_pct"))
-                cleaned_p["roe_pct"] = clean_float(p.get("roe_pct"))
+                cleaned_p["mcap_cr"] = clean_numeric(p.get("mcap_cr"))
+                cleaned_p["pe"] = clean_numeric(p.get("pe"))
+                cleaned_p["pb"] = clean_numeric(p.get("pb"))
+                cleaned_p["roce_pct"] = clean_numeric(p.get("roce_pct"))
+                cleaned_p["roe_pct"] = clean_numeric(p.get("roe_pct"))
                 
                 # Also normalize series lists
                 for list_key in ("revenue_series", "ebitda_margin_series", "pat_series"):
                     series = p.get(list_key)
                     if isinstance(series, list):
-                        cleaned_p[list_key] = [clean_float(v) for v in series]
+                        cleaned_p[list_key] = [clean_numeric(v) for v in series]
                 
                 cleaned_peers_detailed.append(cleaned_p)
             else:
@@ -1796,20 +1844,7 @@ def validate_model_output(model_json: dict, nse_code: str) -> FinancialModelOutp
                 f"Financial model JSON invalid for {nse_code}: assumptions.{key} missing years {', '.join(missing)}"
             )
 
-    projection_list_keys = [
-        "net_block",
-        "cwip",
-        "investments",
-        "other_assets",
-        "share_capital",
-        "reserves",
-        "borrowings",
-        "other_liabilities",
-        "cfo",
-        "cfi",
-        "cff",
-    ]
-    for key in projection_list_keys:
+    for key in PROJECTION_LIST_KEYS:
         values = getattr(validated.projections, key)
         if len(values) != 5:
             raise RuntimeError(f"Financial model JSON invalid for {nse_code}: projections.{key} must contain exactly 5 values")
