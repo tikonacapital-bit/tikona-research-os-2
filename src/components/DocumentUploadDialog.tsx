@@ -42,11 +42,8 @@ function isExcelFile(file: File): boolean {
   return /\.(xlsx|xls|xlsm)$/i.test(file.name) || EXCEL_MIME_TYPES.includes(file.type);
 }
 
-function isAllowedFile(file: File, category: string): boolean {
-  if (category === '') {
-    return isExcelFile(file) || file.type === 'application/pdf';
-  }
-  return category === 'financial_model' ? isExcelFile(file) : file.type === 'application/pdf';
+function isAllowedFile(file: File): boolean {
+  return isExcelFile(file) || file.type === 'application/pdf';
 }
 
 interface DocumentUploadDialogProps {
@@ -98,13 +95,8 @@ export default function DocumentUploadDialog({
     (value: string) => {
       setCategory(value);
       setError(null);
-      // Drop the selected file if it no longer matches the newly chosen category's allowed type.
-      if (selectedFile && !isAllowedFile(selectedFile, value)) {
-        setSelectedFile(null);
-        if (fileInputRef.current) fileInputRef.current.value = '';
-      }
     },
-    [selectedFile]
+    []
   );
 
   const handleFileSelect = useCallback(
@@ -119,8 +111,8 @@ export default function DocumentUploadDialog({
         return;
       }
 
-      if (!isAllowedFile(file, category)) {
-        setError(category === 'financial_model' ? 'Only Excel files (.xlsx/.xls/.xlsm) are supported.' : 'Only PDF files are supported.');
+      if (!isAllowedFile(file)) {
+        setError('Only PDF or Excel files (.xlsx/.xls/.xlsm) are supported.');
         return;
       }
 
@@ -145,8 +137,8 @@ export default function DocumentUploadDialog({
         return;
       }
 
-      if (!isAllowedFile(file, category)) {
-        setError(category === 'financial_model' ? 'Only Excel files (.xlsx/.xls/.xlsm) are supported.' : 'Only PDF files are supported.');
+      if (!isAllowedFile(file)) {
+        setError('Only PDF or Excel files (.xlsx/.xls/.xlsm) are supported.');
         return;
       }
 
@@ -271,24 +263,14 @@ export default function DocumentUploadDialog({
                     Click to select or drag & drop
                   </p>
                   <p className="text-xs text-neutral-400 mt-1">
-                    {category === 'financial_model'
-                      ? `Excel only (.xlsx/.xls/.xlsm), max ${MAX_FILE_SIZE_MB}MB`
-                      : category === ''
-                      ? `PDF or Excel, max ${MAX_FILE_SIZE_MB}MB`
-                      : `PDF only, max ${MAX_FILE_SIZE_MB}MB`}
+                    {`PDF or Excel, max ${MAX_FILE_SIZE_MB}MB`}
                   </p>
                 </>
               )}
               <input
                 ref={fileInputRef}
                 type="file"
-                accept={
-                  category === 'financial_model'
-                    ? '.xlsx,.xls,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/vnd.ms-excel.sheet.macroEnabled.12'
-                    : category === ''
-                    ? '.pdf,application/pdf,.xlsx,.xls,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/vnd.ms-excel.sheet.macroEnabled.12'
-                    : '.pdf,application/pdf'
-                }
+                accept=".pdf,application/pdf,.xlsx,.xls,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/vnd.ms-excel.sheet.macroEnabled.12"
                 onChange={handleFileSelect}
                 className="hidden"
               />
