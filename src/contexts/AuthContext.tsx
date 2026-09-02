@@ -12,6 +12,14 @@ import { AUDIT_ACTIONS, ADMIN_EMAILS } from '@/lib/constants';
 
 export type UserRole = 'admin';
 
+// Gmail addresses are case-insensitive, but Google's OAuth response preserves
+// whatever casing the account actually uses (e.g. "TikonaCapital@gmail.com").
+// Normalize both sides so a legitimate admin login is never rejected over casing.
+const ADMIN_EMAILS_LOWER = (ADMIN_EMAILS as readonly string[]).map((e) => e.toLowerCase());
+function isAdminEmail(email: string | null | undefined): boolean {
+  return !!email && ADMIN_EMAILS_LOWER.includes(email.toLowerCase());
+}
+
 interface AuthContextType {
   user: User | null;
   session: Session | null;
@@ -58,7 +66,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const handleSession = useCallback((newSession: Session | null) => {
     if (newSession?.user) {
       const email = newSession.user.email;
-      if (!email || !(ADMIN_EMAILS as readonly string[]).includes(email)) {
+      if (!isAdminEmail(email)) {
         console.warn(`Unauthorized login attempt from ${email}. Redirecting...`);
         supabase.auth.signOut().then(() => {
           window.location.href = 'https://research.tikonacapital.com';
@@ -87,7 +95,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
         if (event === 'SIGNED_IN' && newSession?.user.email) {
           const email = newSession.user.email;
-          if (!(ADMIN_EMAILS as readonly string[]).includes(email)) {
+          if (!isAdminEmail(email)) {
             console.warn(`Unauthorized sign in event from ${email}. Redirecting...`);
             supabase.auth.signOut().then(() => {
               window.location.href = 'https://research.tikonacapital.com';
@@ -109,7 +117,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (!initialHandled) {
         if (initialSession?.user?.email) {
           const email = initialSession.user.email;
-          if (!(ADMIN_EMAILS as readonly string[]).includes(email)) {
+          if (!isAdminEmail(email)) {
             console.warn(`Unauthorized getSession from ${email}. Redirecting...`);
             supabase.auth.signOut().then(() => {
               window.location.href = 'https://research.tikonacapital.com';
