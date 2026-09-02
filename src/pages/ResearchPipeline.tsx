@@ -42,6 +42,7 @@ import {
   createResearchReport,
   uploadDocument,
   deleteDocument,
+  clearPptPlaceholderOverrides,
 } from '@/lib/api';
 import type { ResearchReport, SessionDocument } from '@/types/database';
 import { createRecommendation, hasRecommendationForSession } from '@/lib/recommendations-api';
@@ -1025,6 +1026,13 @@ export default function ResearchPipeline() {
     if (!sessionId) return;
     try {
       await updatePipelineOutput(sessionId, { thesis_output: newContent });
+      // The Investment Thesis fields in PPTDataPanel are seeded from thesis_output,
+      // but once confirmed, cs_ppt_data permanently shadows it with no staleness
+      // check. Clear it so PPT generation picks up this edit instead of the old
+      // confirmed snapshot.
+      if (initialReport?.report_id) {
+        await clearPptPlaceholderOverrides(initialReport.report_id);
+      }
     } catch {
       toast.error('Failed to save thesis edit');
     }
@@ -1037,6 +1045,12 @@ export default function ResearchPipeline() {
     if (section.id) {
       try {
         await updateResearchSection(section.id, { content: newContent });
+        // Same staleness problem as the thesis edit above — a confirmed cs_ppt_data
+        // snapshot always wins over live section content during PPTX generation, so
+        // it must be invalidated whenever the underlying section changes.
+        if (initialReport?.report_id) {
+          await clearPptPlaceholderOverrides(initialReport.report_id);
+        }
       } catch {
         toast.error('Failed to save section edit');
       }

@@ -1368,6 +1368,22 @@ export async function savePptPlaceholders(
   if (error) throw new Error(`Failed to save PPT data: ${error.message}`);
 }
 
+/**
+ * Clears any saved PPT placeholder overrides for a report. The PPT service treats
+ * cs_ppt_data as the highest-priority source for every placeholder it holds, with
+ * no way to detect that the underlying report content has since changed — so this
+ * must be called whenever a section/thesis edit happens after a report exists,
+ * otherwise later previews/generations keep serving the stale confirmed snapshot
+ * instead of the user's latest edit.
+ */
+export async function clearPptPlaceholderOverrides(reportId: string): Promise<void> {
+  const { error } = await supabase
+    .from('research_reports')
+    .update({ cs_ppt_data: null, updated_at: new Date().toISOString() })
+    .eq('report_id', reportId);
+  if (error) throw new Error(`Failed to clear stale PPT overrides: ${error.message}`);
+}
+
 export async function generatePptx(
   input: GeneratePptxInput,
 ): Promise<GeneratePptxResult> {
