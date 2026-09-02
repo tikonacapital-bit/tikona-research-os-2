@@ -3774,6 +3774,17 @@ def _evaluate_excel_formula_cell(wb, ws_name: str, cell_ref: str, cache: dict[tu
             return 0.0
 
     expr = value[1:].strip()
+
+    # The model writes IF(ISNUMBER(cell), formula, "-") guards throughout
+    # (Market Cap, Enterprise Value, historical CMP, etc.) to skip blank
+    # source cells. eval() has no ISNUMBER builtin, so evaluating that
+    # condition always raised NameError, silently coercing to False and
+    # sending every guarded cell down the "-" fallback branch — which then
+    # itself mis-evaluates to 0.0, wiping out real values with hard zeros.
+    # Every reference this evaluator resolves is already coerced to a float,
+    # so ISNUMBER(...) is always effectively true here.
+    expr = re.sub(r"(?i)ISNUMBER\(([^()]*)\)", "True", expr)
+
     ref_re = re.compile(r"(?:'[^']+'|[A-Za-z0-9_ ]+)?!\$?[A-Z]{1,3}\$?\d+|\$?[A-Z]{1,3}\$?\d+")
 
     def _split_excel_args(arg_str: str) -> list[str]:
