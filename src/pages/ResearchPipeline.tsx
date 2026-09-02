@@ -751,11 +751,21 @@ export default function ResearchPipeline() {
       // Call regenerateFinancialModelJson on the server
       const { jsonFileUrl } = await regenerateFinancialModelJson(ticker);
 
-      // Persist the JSON URL so downstream prompt contexts can fetch it reliably.
+      // Confirming also recalculates the Excel's formulas in place at the same stable
+      // storage path — refresh the cache-busted URL so View/Download reflect the
+      // recalculated file instead of a stale cached copy from before confirming.
+      const refreshedFileUrl = financialModelFileUrl
+        ? `${financialModelFileUrl.split('?')[0]}?t=${Date.now()}`
+        : financialModelFileUrl;
+
+      // Persist the JSON + refreshed file URL so downstream prompt contexts and the
+      // View/Download links fetch reliably instead of a cached response.
       await updatePipelineOutput(sessionId, {
+        financial_model_file_url: refreshedFileUrl,
         financial_model_json_url: jsonFileUrl,
       });
 
+      if (refreshedFileUrl) setFinancialModelFileUrl(refreshedFileUrl);
       setFinancialModelStatus('success');
 
       const updated = await getPipelineSession(sessionId);

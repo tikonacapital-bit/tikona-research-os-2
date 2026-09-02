@@ -254,7 +254,16 @@ async function getFinancialModelPromptContext(sessionId?: string): Promise<Finan
   if (!jsonUrl) return { contextText: '' };
 
   try {
-    const response = await fetch(jsonUrl, { signal: AbortSignal.timeout(15000) });
+    // The JSON sidecar lives at a stable, ticker-based storage path that never changes
+    // across "Confirm"/regenerate cycles, so its public URL is identical every time.
+    // Force a real network fetch (bypassing browser/CDN caching) so a just-regenerated
+    // JSON — e.g. after replacing the Excel with a user-edited version — is never
+    // served from a stale cached response.
+    const cacheBustedUrl = `${jsonUrl}${jsonUrl.includes('?') ? '&' : '?'}t=${Date.now()}`;
+    const response = await fetch(cacheBustedUrl, {
+      signal: AbortSignal.timeout(15000),
+      cache: 'no-store',
+    });
     if (!response.ok) {
       console.warn('[Pipeline] Financial model JSON fetch failed:', response.status);
       return { contextText: '' };
