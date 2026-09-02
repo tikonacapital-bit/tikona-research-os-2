@@ -42,6 +42,14 @@ export async function createRecommendation(
       rec.telegram_sent = true;
     } catch (e) {
       console.error('[Recommendations] Telegram send failed:', e);
+      // Don't swallow this — the recommendation row was saved, but the Telegram
+      // push did NOT go out. Re-throw so the caller shows a real failure instead
+      // of reporting "Recommendation Sent" when nothing was actually sent.
+      throw new Error(
+        `Recommendation was saved, but sending to Telegram failed: ${
+          e instanceof Error ? e.message : 'Unknown error'
+        }`
+      );
     }
   }
 
@@ -196,6 +204,9 @@ async function sendToTelegram(rec: Recommendation, pdfFileId?: string | null): P
     }),
   });
   if (!res.ok) {
-    throw new Error(`Telegram webhook failed: ${res.status} ${res.statusText}`);
+    const bodyText = await res.text().catch(() => '');
+    throw new Error(
+      `Telegram webhook failed: ${res.status} ${res.statusText}${bodyText ? ` — ${bodyText}` : ''}`
+    );
   }
 }
