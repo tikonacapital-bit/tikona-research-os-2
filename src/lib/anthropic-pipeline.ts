@@ -18,6 +18,7 @@ import {
   sanitisePptContent,
   type PptCopyMetadata,
 } from '@/lib/ppt-copy-schema';
+import { FM_STORAGE_BUCKET, financialModelJsonStoragePath } from '@/lib/api';
 // ========================
 // Anthropic Client
 // ========================
@@ -246,30 +247,55 @@ async function getFinancialModelPromptContext(sessionId?: string): Promise<Finan
 
   const { data } = await supabase
     .from('research_sessions')
-    .select('financial_model_json_url')
+    .select('financial_model_json_url, company_nse_code')
     .eq('session_id', sessionId)
     .maybeSingle();
 
-  const jsonUrl = (data as { financial_model_json_url?: string | null } | null)?.financial_model_json_url;
+  const row = data as { financial_model_json_url?: string | null; company_nse_code?: string | null } | null;
+  const jsonUrl = row?.financial_model_json_url;
+  const ticker = row?.company_nse_code;
   if (!jsonUrl) return { contextText: '' };
 
   try {
     // The JSON sidecar lives at a stable, ticker-based storage path that never changes
-    // across "Confirm"/regenerate cycles, so its public URL is identical every time.
-    // Force a real network fetch (bypassing browser/CDN caching) so a just-regenerated
-    // JSON — e.g. after replacing the Excel with a user-edited version — is never
-    // served from a stale cached response.
-    const cacheBustedUrl = `${jsonUrl}${jsonUrl.includes('?') ? '&' : '?'}t=${Date.now()}`;
-    const response = await fetch(cacheBustedUrl, {
-      signal: AbortSignal.timeout(15000),
-      cache: 'no-store',
-    });
-    if (!response.ok) {
-      console.warn('[Pipeline] Financial model JSON fetch failed:', response.status);
-      return { contextText: '' };
+    // across "Confirm"/regenerate cycles, so its public URL is identical every time —
+    // and a cache-busting query string on that URL isn't guaranteed to defeat every
+    // CDN in front of it (some ignore query params for cache-key purposes). Prefer
+    // downloading straight from Storage via the authenticated API, which always
+    // returns the current object, so a just-regenerated JSON — e.g. after replacing
+    // the Excel with a user-edited version — is never served stale.
+    let model: Record<string, unknown> | null = null;
+    if (ticker) {
+      const { data: fileData, error: downloadError } = await supabase.storage
+        .from(FM_STORAGE_BUCKET)
+        .download(financialModelJsonStoragePath(ticker));
+      if (!downloadError && fileData) {
+        try {
+          model = JSON.parse(await fileData.text()) as Record<string, unknown>;
+        } catch (e) {
+          console.warn('[Pipeline] Financial model JSON parse (storage download) failed:', e);
+        }
+      } else if (downloadError) {
+        console.warn('[Pipeline] Financial model JSON storage download failed, falling back to URL fetch:', downloadError.message);
+      }
     }
 
-    const model = (await response.json()) as Record<string, unknown>;
+    if (!model) {
+      // Fallback for sessions where the ticker isn't set, or the storage download failed.
+      const cacheBustedUrl = `${jsonUrl}${jsonUrl.includes('?') ? '&' : '?'}t=${Date.now()}`;
+      const response = await fetch(cacheBustedUrl, {
+        signal: AbortSignal.timeout(15000),
+        cache: 'no-store',
+      });
+      if (!response.ok) {
+        console.warn('[Pipeline] Financial model JSON fetch failed:', response.status);
+        return { contextText: '' };
+      }
+      model = (await response.json()) as Record<string, unknown>;
+    }
+
+    if (!model) return { contextText: '' };
+
     const assumptions = (model.assumptions as Record<string, unknown> | undefined) ?? {};
     const valuation = (model.valuation as Record<string, unknown> | undefined) ?? {};
     const thesis = (model.thesis as Record<string, unknown> | undefined) ?? {};
