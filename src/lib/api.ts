@@ -283,10 +283,14 @@ export async function regenerateFinancialModelJson(
 }
 
 // Bucket + path convention used by scripts/financial_model_server.py — must stay in sync.
-const FM_STORAGE_BUCKET = 'research-reports-html';
+// Exported so callers needing a guaranteed-fresh read (e.g. the pipeline's prompt
+// context builder) can download straight from Storage instead of a public URL,
+// which may sit behind CDN/browser caching that a cache-busting query string
+// doesn't reliably defeat.
+export const FM_STORAGE_BUCKET = 'research-reports-html';
 const financialModelStoragePath = (ticker: string) =>
   `financial-models/${ticker.toUpperCase()}/${ticker.toUpperCase()}_model.xlsx`;
-const financialModelJsonStoragePath = (ticker: string) =>
+export const financialModelJsonStoragePath = (ticker: string) =>
   `financial-models/${ticker.toUpperCase()}/${ticker.toUpperCase()}_model.json`;
 
 /**
