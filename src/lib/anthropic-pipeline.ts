@@ -302,44 +302,67 @@ async function getFinancialModelPromptContext(sessionId?: string): Promise<Finan
     const peers = Array.isArray(model.peers) ? model.peers.slice(0, 6) : [];
     const projectionYears = Array.isArray(assumptions.projection_years) ? assumptions.projection_years.join(', ') : 'N/A';
 
+    // IMPORTANT: "Confirm Financial Model" only recalculates the spreadsheet's
+    // numeric fields (base_year, cmp, target_price, rating, upside_pct,
+    // assumptions.*, projections.*, saarthi_scorecard) via LibreOffice + a
+    // direct sheet read — it does NOT re-run the AI narrative pass. So
+    // thesis.investment_thesis/bull_case/bear_case/key_catalysts/key_risks and
+    // the whole `valuation` block are frozen at whatever the very first
+    // "Generate Financial Model" produced and never get refreshed by a
+    // Replace + Confirm, even though everything below this block is fresh.
+    // saarthi_scorecard is the one exception with a genuinely fresh counterpart
+    // (written by regenerate-json) — prefer it over the stale thesis.saarthi_*
+    // fields, which only remain the source before the model has ever been confirmed.
+    const scorecard = (model.saarthi_scorecard as Record<string, unknown> | undefined) ?? null;
+    const saarthiDims = (scorecard?.dimensions ?? thesis.saarthi_dimensions) as unknown;
+    const saarthiTotal = scorecard?.total_score ?? thesis.saarthi_total;
+    const saarthiIsFresh = !!scorecard;
+
     let saarthiDimensionText = '';
-    const dims = thesis.saarthi_dimensions;
-    if (Array.isArray(dims) && dims.length > 0) {
-      saarthiDimensionText = dims.map((d: { key: string; name: string; score: number; max_score: number; rationale?: string }) => {
+    if (Array.isArray(saarthiDims) && saarthiDims.length > 0) {
+      saarthiDimensionText = saarthiDims.map((d: { key: string; name: string; score: number; max_score: number; rationale?: string }) => {
         return `- **${d.key} — ${d.name}:** ${d.score}/${d.max_score} (${d.rationale || ''})`;
       }).join('\n');
     }
 
+    const hasStaleNarrative = !!(thesis.investment_thesis || thesis.bull_case || thesis.bear_case);
+
     return {
       contextText: `
-## Financial Model Snapshot
+## Financial Model Snapshot (numbers below are current as of the last Confirm)
 - Base Year: ${String(model.base_year ?? 'N/A')}
 - Projection Years: ${projectionYears}
 - CMP: ${String(model.cmp ?? 'N/A')}
 - Target Price: ${String(model.target_price ?? 'N/A')}
 - Rating: ${String(model.rating ?? 'N/A')}
 - Upside %: ${String(model.upside_pct ?? 'N/A')}
-- SAARTHI: ${String(thesis.saarthi_total ?? 'N/A')} / 100 (${String(thesis.saarthi_rating ?? 'N/A')})
+- SAARTHI: ${String(saarthiTotal ?? 'N/A')} / 100${saarthiIsFresh ? '' : ' (from initial generation — not yet reconfirmed against the current model)'}
 ${saarthiDimensionText ? `Detailed Dimension Scores:\n${saarthiDimensionText}\n` : ''}
-- FM Thesis: ${String(thesis.investment_thesis ?? '')}
-- Bull Case: ${String(thesis.bull_case ?? '')}
-- Bear Case: ${String(thesis.bear_case ?? '')}
-- Key Catalysts: ${Array.isArray(thesis.key_catalysts) ? thesis.key_catalysts.join('; ') : 'N/A'}
-- Key Risks: ${Array.isArray(thesis.key_risks) ? thesis.key_risks.join('; ') : 'N/A'}
 - Revenue Growth Assumptions: ${JSON.stringify(assumptions.revenue_growth_pct ?? {})}
 - Receivable Days Assumptions: ${JSON.stringify(assumptions.receivable_days ?? {})}
 - Inventory Days Assumptions: ${JSON.stringify(assumptions.inventory_days ?? {})}
-- Valuation Anchors: ${JSON.stringify({
+- Target Multiples: ${JSON.stringify({
+        target_pe: assumptions.target_pe ?? null,
+        target_ev_ebitda: assumptions.target_ev_ebitda ?? null,
+      })}
+${hasStaleNarrative ? `
+## Original Model Draft (⚠ from the FIRST "Generate Financial Model" run — does NOT reflect any later Replace/edit, may be stale)
+- Draft Thesis: ${String(thesis.investment_thesis ?? '')}
+- Draft Bull Case: ${String(thesis.bull_case ?? '')}
+- Draft Bear Case: ${String(thesis.bear_case ?? '')}
+- Draft Key Catalysts: ${Array.isArray(thesis.key_catalysts) ? thesis.key_catalysts.join('; ') : 'N/A'}
+- Draft Key Risks: ${Array.isArray(thesis.key_risks) ? thesis.key_risks.join('; ') : 'N/A'}
+- Draft Valuation Anchors: ${JSON.stringify({
         dcf_fair_value: valuation.dcf_fair_value ?? null,
         pe_fair_value: valuation.pe_fair_value ?? null,
         ev_ebitda_fair_value: valuation.ev_ebitda_fair_value ?? null,
         blended_fair_value: valuation.blended_fair_value ?? null,
-        target_pe: assumptions.target_pe ?? null,
-        target_ev_ebitda: assumptions.target_ev_ebitda ?? null,
       })}
-- Peer Set: ${JSON.stringify(peers)}
+- Draft Peer Set: ${JSON.stringify(peers)}
 
-Use this financial-model snapshot as an analyst-produced structured input. Keep Stage 1/2 outputs consistent with it unless fresher evidence from vault docs or web search clearly contradicts it, and call out contradictions explicitly.
+The "Original Model Draft" section above is background color only, NOT a source of truth — it was written once at initial generation and is never regenerated when the model is later edited. Give it far less weight than the fresh Financial Model Snapshot above, the Vault Briefing, and web_search. If the draft conflicts with current numbers or web research, trust the current data and ignore the draft.
+` : ''}
+Use the Financial Model Snapshot above as an analyst-produced structured input for the current numbers. Keep Stage 1/2 outputs consistent with it unless fresher evidence from vault docs or web search clearly contradicts it, and call out contradictions explicitly.
 `.trim(),
     };
   } catch (error) {

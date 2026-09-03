@@ -161,6 +161,16 @@ export default function ResearchPipeline() {
   const [fmElapsedSeconds, setFmElapsedSeconds] = useState(0);
   const fmTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Guards against the vault being created twice: handleCreateSession's own
+  // createVault() call races with the "Load session data" effect below, which
+  // auto-resumes vault creation for any session sitting in 'company_selected'
+  // or 'vault_creating' with no vault_folder_id yet — a state every brand-new
+  // session starts in, not just a genuinely interrupted one. Tracks which
+  // session IDs already have a creation in flight (started by any of the three
+  // call sites: handleCreateSession, handleRetryVaultCreation, or the resume
+  // effect itself) so only one ever actually runs.
+  const vaultCreationInFlightRef = useRef<Set<string>>(new Set());
+
   // --- Pipeline Stage State ---
   const [pipelineStatus, setPipelineStatus] = useState<PipelineStatus>('company_selected');
   const [isRunning, setIsRunning] = useState(false);
@@ -251,8 +261,15 @@ export default function ResearchPipeline() {
           setVaultId(s.vault_folder_id);
           setVaultLink(s.vault_folder_url || `https://drive.google.com/drive/folders/${s.vault_folder_id}`);
           setVaultStatus('success');
-        } else if (s.pipeline_status === 'vault_creating' || s.pipeline_status === 'company_selected') {
-          // Auto-resume vault creation if interrupted
+        } else if (
+          (s.pipeline_status === 'vault_creating' || s.pipeline_status === 'company_selected') &&
+          !vaultCreationInFlightRef.current.has(s.session_id)
+        ) {
+          // Auto-resume vault creation if interrupted. Guarded above because
+          // 'company_selected' is also the state every brand-new session starts
+          // in — without the guard this races handleCreateSession's own
+          // createVault() call and generates the vault twice for every session.
+          vaultCreationInFlightRef.current.add(s.session_id);
           setVaultStatus('loading');
           createVault(s.company_nse_code, s.sector || 'General')
             .then(async (vaultResponse) => {
@@ -290,6 +307,9 @@ export default function ResearchPipeline() {
             .catch((err) => {
               console.error('Auto-vault creation on resume failed:', err);
               setVaultStatus('error');
+            })
+            .finally(() => {
+              vaultCreationInFlightRef.current.delete(s.session_id);
             });
         }
 
@@ -459,6 +479,7 @@ export default function ResearchPipeline() {
     const sector = selectedSector || financials?.sector || financials?.broad_sector || 'General';
     if (!selectedSector) setSelectedSector(sector);
     setIsCreatingSession(true);
+    let createdSessionId: string | null = null;
 
     try {
       const newSession = await createPipelineSession({
@@ -468,6 +489,13 @@ export default function ResearchPipeline() {
         created_by: user.email,
         selected_model: selectedModel,
       });
+      // Claim this session before setSessionId below can trigger the "load session
+      // data" effect's own auto-resume vault creation for the same session — it
+      // treats 'company_selected' (the state every brand-new session starts in)
+      // as a signal to create a vault too, racing this call otherwise.
+      createdSessionId = newSession.session_id;
+      vaultCreationInFlightRef.current.add(newSession.session_id);
+
       setSessionId(newSession.session_id);
       setSession(newSession);
       setPipelineStatus('company_selected');
@@ -529,16 +557,19 @@ export default function ResearchPipeline() {
       setVaultStatus('error');
     } finally {
       setIsCreatingSession(false);
+      if (createdSessionId) vaultCreationInFlightRef.current.delete(createdSessionId);
     }
   };
 
   // --- Retry Vault Creation (when previous try failed/timed out) ---
   const handleRetryVaultCreation = async () => {
     if (!sessionId || !selectedCompany || !session) return;
+    if (vaultCreationInFlightRef.current.has(sessionId)) return; // already running (e.g. resume effect got there first)
     const sector = selectedSector || session.sector || 'General';
     if (!selectedSector) setSelectedSector(sector);
     setVaultStatus('loading');
-    
+    vaultCreationInFlightRef.current.add(sessionId);
+
     try {
       if (pipelineStatus !== 'vault_creating') {
         await transitionPipelineStatus(sessionId, 'vault_creating', pipelineStatus);
@@ -592,6 +623,8 @@ export default function ResearchPipeline() {
       console.error('[Pipeline] Vault creation retry failed:', err);
       toast.error(`Failed to create vault: ${err instanceof Error ? err.message : 'Unknown error'}`);
       setVaultStatus('error');
+    } finally {
+      vaultCreationInFlightRef.current.delete(sessionId);
     }
   };
 
