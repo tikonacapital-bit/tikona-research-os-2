@@ -53,7 +53,7 @@ import type { PipelineSession, PipelineProgress, PipelineStatus, SectorFramework
 import { PIPELINE_STAGE_LABELS, PIPELINE_MODELS, DEFAULT_PIPELINE_MODEL, getStageNumber } from '@/types/pipeline';
 import type { MasterCompany } from '@/types/database';
 import type { VaultDocument } from '@/types/vault';
-import DocumentUploadDialog from '@/components/DocumentUploadDialog';
+import DocumentUploadDialog, { isExcelFile } from '@/components/DocumentUploadDialog';
 import { cn } from '@/lib/utils';
 import { SECTORS } from '@/lib/sectors';
 import {
@@ -742,7 +742,7 @@ export default function ResearchPipeline() {
     const ticker = selectedCompany?.nse_symbol;
     if (!sessionId || !ticker) return;
 
-    if (!/\.(xlsx|xls|xlsm)$/i.test(file.name)) {
+    if (!isExcelFile(file)) {
       toast.error('Please select an Excel file (.xlsx, .xls, or .xlsm)');
       return;
     }

@@ -38,7 +38,11 @@ const EXCEL_MIME_TYPES = [
   'application/vnd.ms-excel.sheet.macroEnabled.12',
 ];
 
-function isExcelFile(file: File): boolean {
+// Exported so other Excel-upload entry points (e.g. the pipeline's "Replace
+// Financial Model" flow) can validate the same way — by content type as well
+// as extension, since a renamed file with no recognizable extension is still
+// a valid Excel file the browser correctly reports the MIME type for.
+export function isExcelFile(file: File): boolean {
   return /\.(xlsx|xls|xlsm)$/i.test(file.name) || EXCEL_MIME_TYPES.includes(file.type);
 }
 
