@@ -225,6 +225,23 @@ export default function PostProductionPanel({
     return () => { cancelled = true; };
   }, [sessionId]);
 
+  // The parent clears ppt_content_json in the database whenever a report section
+  // or the thesis is edited, but that alone doesn't tell THIS already-mounted
+  // panel to stop trusting its own slideCopyReady flag — this page keeps the
+  // report-editing UI and this panel visible together, so an edit can happen
+  // without the panel ever remounting. Skip the very first run (that's just the
+  // initial population of stage2Sections, not an edit) and reset the flag on
+  // every run after that, forcing "Generate PPTX" to regenerate slide copy from
+  // the edited content instead of silently reusing what's already marked ready.
+  const hasSeenStage2SectionsRef = useRef(false);
+  useEffect(() => {
+    if (!hasSeenStage2SectionsRef.current) {
+      hasSeenStage2SectionsRef.current = true;
+      return;
+    }
+    setSlideCopyReady(false);
+  }, [stage2Sections]);
+
   useEffect(() => {
     if (initialReport) {
       restoreFromReport(initialReport);

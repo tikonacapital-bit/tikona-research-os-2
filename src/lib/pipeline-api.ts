@@ -714,3 +714,22 @@ export async function getPptContent(sessionId: string): Promise<PptContent | nul
   const json = data?.ppt_content_json;
   return (json && typeof json === 'object' ? (json as PptContent) : null);
 }
+
+/**
+ * Invalidates a previously-generated PPT copywriting pass. The copywriting
+ * pass reads whatever the report sections said at the moment it ran and is
+ * never re-run automatically — "Generate PPTX" only calls it when
+ * ppt_content_json is empty. So editing a section or the thesis after the
+ * copywriting pass has already run left this cache silently stale, and the
+ * PPTX kept using the pre-edit copy. Call this whenever a section/thesis
+ * edit happens so the next PPTX generation is forced to regenerate slide
+ * copy from the current content instead.
+ */
+export async function clearPptContent(sessionId: string): Promise<void> {
+  const { error } = await supabase
+    .from('research_sessions')
+    .update({ ppt_content_json: null, updated_at: new Date().toISOString() })
+    .eq('session_id', sessionId);
+
+  if (error) throw new Error(`Failed to clear stale PPT content: ${error.message}`);
+}
