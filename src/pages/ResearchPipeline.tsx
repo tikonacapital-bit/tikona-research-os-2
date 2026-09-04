@@ -26,6 +26,7 @@ import {
   getResearchSections,
   getFrameworkFromPlaybook,
   getSectorPlaybook,
+  clearPptContent,
 } from '@/lib/pipeline-api';
 import {
   createVault,
@@ -1066,6 +1067,12 @@ export default function ResearchPipeline() {
       if (initialReport?.report_id) {
         await clearPptPlaceholderOverrides(initialReport.report_id);
       }
+      // Separate cache from the one above: the AI "PPT copywriting" pass
+      // (runPptCopywriting) persists its output once to ppt_content_json and is
+      // never re-run automatically — "Generate PPTX" only calls it when that
+      // column is empty. Clear it too so a later PPTX generation regenerates
+      // slide copy from this edit instead of silently reusing the old pass.
+      await clearPptContent(sessionId);
     } catch {
       toast.error('Failed to save thesis edit');
     }
@@ -1084,6 +1091,9 @@ export default function ResearchPipeline() {
         if (initialReport?.report_id) {
           await clearPptPlaceholderOverrides(initialReport.report_id);
         }
+        // Separate cache: the AI PPT copywriting pass (ppt_content_json) also
+        // never re-runs on its own once generated — invalidate it too.
+        await clearPptContent(sessionId);
       } catch {
         toast.error('Failed to save section edit');
       }
