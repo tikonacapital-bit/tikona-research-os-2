@@ -870,9 +870,9 @@ The 12 sections and their specific instructions are:
 ---
 
 **1. Investment Rationale**
-Draft a professional investment rationale in STRICTLY UNDER 100 WORDS, structured into very concise bullet points. 
+Draft a professional investment rationale in STRICTLY UNDER 100 WORDS, structured into very concise bullet points.
 Assume yourself to be an experienced Equity Research Analyst. Synthesize the core thesis covering the business moat, forward catalysts, identifying the valuation gap, and state the exact target valuation. Use facts and figures compactly.
-Conclude with a clear Buy/Sell/Hold recommendation and the exact target price derived from the context. Do not exceed 100 words.
+Conclude with a clear Buy/Sell/Hold recommendation and the exact target price. If a "Financial Model Snapshot" is present in the context, that snapshot's Target Price and Rating ARE the values to state here — do not derive a different target price via web search or your own valuation work. Do not exceed 100 words.
 
 ---
 
@@ -1010,7 +1010,8 @@ For each section from 2 to 12:
 - Do NOT use bullet-point-heavy formatting — write in dense analytical paragraphs
 
 CRITICAL ALIGNMENT RULE FOR ENTIRE REPORT:
-- The Target Price, Rating (Buy/Sell/Hold), Upside Percentage, and SAARTHI Scorecard (individual dimension scores and total score) MUST remain absolutely identical across every single section and MUST explicitly match the findings established in the Investment Thesis context.
+- The Target Price, Rating (Buy/Sell/Hold), Upside Percentage, and SAARTHI Scorecard (individual dimension scores and total score) MUST remain absolutely identical across every single section — including Section 1 (Investment Rationale) — and MUST explicitly match the findings established in the Investment Thesis context.
+- If a "Financial Model Snapshot" is present in the context, it is the primary, authoritative source for these same figures (CMP, Target Price, Rating, Upside %, SAARTHI, Bull/Base/Bear scenarios) — every section citing them, from Section 1 onward, must match it exactly, not just the Investment Thesis text. The Investment Thesis should itself already agree with the snapshot; if it doesn't, the snapshot wins.
 - DO NOT hallucinate, guess, or invent differing target prices, upside percentages, or SAARTHI scores anywhere in this generation.
 
 For sections 13 to 18:
