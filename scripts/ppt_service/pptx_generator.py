@@ -1823,31 +1823,76 @@ def map_replacements(company, metadata, fin_model, sections):
         replacements[_placeholder] = ""
 
     # ── Scenario data (Slides 16, 18) ─────────────────────────────────────────
+    # fin_model["scenarios"] is a list written once by the very first AI
+    # generation pass and is NEVER refreshed by "Confirm Financial Model" —
+    # only fin_model["scenario_analysis"] (a dict keyed by bull/base/bear,
+    # written by the FM server's /regenerate-json) is recalculated from the
+    # user's actual Excel each time. Reading "scenarios" here meant the Bull/
+    # Base/Bear target price, target P/E, and probability fields stayed frozen
+    # at whatever the model said before any Replace + Confirm, even though the
+    # narrative notes for the same cases (populated separately, from the
+    # AI copywriting pass over the now-current report) looked correct —
+    # exactly the split symptom of right-looking text next to a stale number.
     scenarios = fin_model.get("scenarios") or []
+    fresh_scenarios = fin_model.get("scenario_analysis") or {}
     bear_tp_f = 0.0
+    # Seed narrative notes from the legacy list (nothing fresher provides these).
     for s in scenarios:
         name  = str(s.get("name", "")).lower()
         notes = _clean_prose(str(s.get("notes", "")), max_len=200)
-        prob  = str(s.get("probability_pct", "") or "")
-        tp    = str(s.get("target_price", "") or "")
-        prob_disp = (prob + "%") if prob and not prob.endswith("%") else prob
-        tp_fmt = fmt_number(tp)
         if "bull" in name:
+            replacements["bull_content"] = notes
+        elif "bear" in name:
+            replacements["bear_content"] = notes
+        elif "base" in name:
+            replacements["base_content"] = notes
+
+    def _apply_fresh_scenario(key: str, case: dict) -> float:
+        prob = case.get("probability_pct")
+        prob_disp = f"{prob}%" if prob not in (None, "") else ""
+        tp_fmt = fmt_number(str(case.get("target_price", "") or ""))
+        if key == "bull":
             replacements["valuation_bull"] = tp_fmt
             replacements["bull"]           = tp_fmt
             replacements["bull_p"]         = prob_disp
-            replacements["bull_content"]   = notes
-        elif "bear" in name:
+        elif key == "bear":
             replacements["valuation_bear"] = tp_fmt
             replacements["bear"]           = tp_fmt
             replacements["bear_p"]         = prob_disp
-            replacements["bear_content"]   = notes
-            bear_tp_f = _parse_number(tp) or 0.0
-        elif "base" in name:
+        elif key == "base":
             replacements["base"]           = tp_fmt
             replacements["valuation_base"] = tp_fmt
             replacements["base_p"]         = prob_disp
-            replacements["base_content"]   = notes
+        return _parse_number(case.get("target_price")) or 0.0
+
+    if fresh_scenarios:
+        for key in ("bull", "base", "bear"):
+            case = fresh_scenarios.get(key)
+            if isinstance(case, dict):
+                tp_f = _apply_fresh_scenario(key, case)
+                if key == "bear":
+                    bear_tp_f = tp_f
+    else:
+        # No confirmed model — fall back to the legacy list for the numbers too.
+        for s in scenarios:
+            name  = str(s.get("name", "")).lower()
+            prob  = str(s.get("probability_pct", "") or "")
+            tp    = str(s.get("target_price", "") or "")
+            prob_disp = (prob + "%") if prob and not prob.endswith("%") else prob
+            tp_fmt = fmt_number(tp)
+            if "bull" in name:
+                replacements["valuation_bull"] = tp_fmt
+                replacements["bull"]           = tp_fmt
+                replacements["bull_p"]         = prob_disp
+            elif "bear" in name:
+                replacements["valuation_bear"] = tp_fmt
+                replacements["bear"]           = tp_fmt
+                replacements["bear_p"]         = prob_disp
+                bear_tp_f = _parse_number(tp) or 0.0
+            elif "base" in name:
+                replacements["base"]           = tp_fmt
+                replacements["valuation_base"] = tp_fmt
+                replacements["base_p"]         = prob_disp
 
     # ── Trading Strategy (Slide 18) ───────────────────────────────────────────
     trading = fin_model.get("trading_strategy") or {}
