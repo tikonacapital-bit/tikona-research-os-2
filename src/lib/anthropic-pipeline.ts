@@ -328,16 +328,36 @@ async function getFinancialModelPromptContext(sessionId?: string): Promise<Finan
 
     const hasStaleNarrative = !!(thesis.investment_thesis || thesis.bull_case || thesis.bear_case);
 
+    // scenario_analysis (bull/base/bear target prices, probabilities, weighted
+    // target) comes from the model's own Scenario_Analysis sheet and IS
+    // refreshed by every Confirm — but was never surfaced here, so Stage 1's
+    // "Target Price Range" and Stage 2's "Scenario Analysis" section had no
+    // choice but to invent their own bull/base/bear figures from scratch,
+    // completely disconnected from the user's actual model.
+    const scenario = (model.scenario_analysis as Record<string, unknown> | undefined) ?? null;
+    const scenarioText = scenario ? (() => {
+      const fmtCase = (label: string, c: unknown) => {
+        const cc = (c as Record<string, unknown> | undefined) ?? {};
+        return `  - **${label}:** Target Price ₹${String(cc.target_price ?? 'N/A')} (Target P/E ${String(cc.target_pe ?? 'N/A')}x, EPS adj ${String(cc.eps_adjustment_pct ?? 'N/A')}%, Probability ${String(cc.probability_pct ?? 'N/A')}%)`;
+      };
+      return `
+- Bull/Base/Bear Scenarios (from the model's own Scenario Analysis sheet):
+${fmtCase('Bull', scenario.bull)}
+${fmtCase('Base', scenario.base)}
+${fmtCase('Bear', scenario.bear)}
+  - **Weighted Target Price:** ₹${String(scenario.weighted_tp ?? 'N/A')}`;
+    })() : '';
+
     return {
       contextText: `
 ## Financial Model Snapshot — CONFIRMED, AUTHORITATIVE, DO NOT OVERRIDE
-This snapshot was recalculated from the user's own uploaded Excel model as of the last "Confirm Financial Model" click. It is more current and more trustworthy than anything web_search can find for CMP, Target Price, Rating, Upside %, or the assumptions below. Do NOT run web_search to find an alternate CMP or price and do NOT treat a different web_search figure as "fresher evidence" that overrides these — that instinct is exactly what produces a wrong, self-invented price. Use every value below EXACTLY as given, verbatim, in every section of the thesis/report that cites CMP, Target Price, Rating, Upside %, or SAARTHI. Web_search is still the right tool for everything this snapshot doesn't cover: news, management commentary, sector conditions, competitor moves, qualitative developments.
+This snapshot was recalculated from the user's own uploaded Excel model as of the last "Confirm Financial Model" click. It is more current and more trustworthy than anything web_search can find for CMP, Target Price, Rating, Upside %, the Bull/Base/Bear scenarios, or the assumptions below. Do NOT run web_search to find an alternate CMP or price, do NOT derive your own Bull/Base/Bear target prices, and do NOT treat a different web_search figure as "fresher evidence" that overrides these — that instinct is exactly what produces a wrong, self-invented price. Use every value below EXACTLY as given, verbatim, in every section of the thesis/report that cites CMP, Target Price, Rating, Upside %, SAARTHI, or scenario/target-price-range analysis. Web_search is still the right tool for everything this snapshot doesn't cover: news, management commentary, sector conditions, competitor moves, qualitative developments.
 - Base Year: ${String(model.base_year ?? 'N/A')}
 - Projection Years: ${projectionYears}
 - CMP: ${String(model.cmp ?? 'N/A')}
 - Target Price: ${String(model.target_price ?? 'N/A')}
 - Rating: ${String(model.rating ?? 'N/A')}
-- Upside %: ${String(model.upside_pct ?? 'N/A')}
+- Upside %: ${String(model.upside_pct ?? 'N/A')}${scenarioText}
 - SAARTHI: ${String(saarthiTotal ?? 'N/A')} / 100${saarthiIsFresh ? '' : ' (from initial generation — not yet reconfirmed against the current model)'}
 ${saarthiDimensionText ? `Detailed Dimension Scores:\n${saarthiDimensionText}\n` : ''}
 - Revenue Growth Assumptions: ${JSON.stringify(assumptions.revenue_growth_pct ?? {})}
@@ -364,7 +384,7 @@ ${hasStaleNarrative ? `
 
 The "Original Model Draft" section above is background color only, NOT a source of truth — it was written once at initial generation and is never regenerated when the model is later edited. Give it far less weight than the fresh Financial Model Snapshot above, the Vault Briefing, and web_search. If the draft conflicts with current numbers or web research, trust the current data and ignore the draft.
 ` : ''}
-Repeat: CMP, Target Price, Rating, and Upside % come from the Financial Model Snapshot above, not from web_search and not from your own estimate. Every section of Stage 1/2 that cites these must match this snapshot exactly.
+Repeat: CMP, Target Price, Rating, Upside %, and the Bull/Base/Bear scenario target prices all come from the Financial Model Snapshot above, not from web_search and not from your own estimate. Every section of Stage 1/2 that cites these must match this snapshot exactly.
 `.trim(),
     };
   } catch (error) {
@@ -811,9 +831,9 @@ Clear 3-5 paragraph thesis. Start with the SAARTHI rating and total score. Expla
 - **Weakest Dimension:** Which SAARTHI factor scored lowest and what would change it
 - **Primary Catalyst:** Most important near-term catalyst (from I-score)
 - **Primary Risk:** Most important risk factor
-- **Target Price Range:** Low — Base — High
+- **Target Price Range:** Low — Base — High. If a "Financial Model Snapshot" with Bull/Base/Bear scenarios is present in the context, this range IS those exact figures (Bear=Low, Base=Base, Bull=High) — do not derive your own.
 
-Be specific. Use real numbers from web search. The SAARTHI score determines the rating — do not override it. Do NOT use markdown tables.`,
+Be specific. Use real numbers from web search. The SAARTHI score determines the rating — do not override it. If a Financial Model Snapshot is present, its CMP/Target Price/Rating/Upside/scenario figures likewise override anything web search finds. Do NOT use markdown tables.`,
   },
   stage2: {
     system: `You are a senior institutional equity research analyst at a leading Indian investment bank.
@@ -943,11 +963,11 @@ This section must be actionable with specific price levels and measurable thresh
 ---
 
 **12. Scenario Analysis**
-Present a structured 3-scenario framework:
+Present a structured 3-scenario framework. If a "Financial Model Snapshot" with Bull/Base/Bear scenarios is present in the context, its target prices, target P/E multiples, and probabilities for each case ARE the numbers to use below — do not derive different ones. Otherwise, derive them yourself as described:
 - **Bull Case:** Define the most optimistic but plausible outcome. Quantify revenue, EBITDA, PAT, and margin expectations. Derive a target price using appropriate valuation multiple. Specify probability (e.g., 25-30%). Identify the key catalysts that must materialize.
 - **Base Case:** Define the most likely outcome based on current trajectory and management guidance. Quantify all key financial metrics with specific numbers. Derive target price. Specify probability (e.g., 50-55%). This should align with consensus estimates.
 - **Bear Case:** Define the downside scenario. Quantify the impact on financials under stress conditions (demand slowdown, margin compression, macro headwinds). Derive a floor price. Specify probability (e.g., 15-25%). Identify the triggers that would cause this scenario.
-For each scenario, provide: Revenue, EBITDA, PAT estimates for next 2 years, target valuation multiple, implied target price, and expected return from CMP. End with a probability-weighted target price.
+For each scenario, provide: Revenue, EBITDA, PAT estimates for next 2 years, target valuation multiple, implied target price, and expected return from CMP. End with the probability-weighted target price — use the snapshot's Weighted Target Price verbatim if one was given.
 
 ---
 
