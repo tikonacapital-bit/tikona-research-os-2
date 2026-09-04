@@ -536,11 +536,13 @@ def _fetch_realtime_cmp(ticker: str) -> float | None:
 
 def _build_metadata(report: dict, sections: list[dict], model_json: dict | None = None) -> dict:
     narrative = _all_sections_text(sections)
+    # Same precedence fix as target price below: a manual edit to the approved
+    # report's own Rating field must win over the raw model snapshot.
     rating_raw = _prefer(
         report.get("cs_rating"),
-        model_json.get("rating") if model_json else None,
         report.get("rating"),
         _section_value(sections, "rating"),
+        model_json.get("rating") if model_json else None,
         _extract_rating(narrative)
     )
     if not rating_raw:
@@ -564,11 +566,19 @@ def _build_metadata(report: dict, sections: list[dict], model_json: dict | None 
             ],
         ),
     )
+    # Section value (the approved report's own Target Price field, which the
+    # user can hand-edit) comes BEFORE the raw model JSON: once a report has
+    # been generated and approved, a manual edit to it is a deliberate,
+    # reviewed correction and must be the number that reaches the PPT — not
+    # silently overridden by the model snapshot the report was generated
+    # from. The model JSON stays as a fallback for reports that were never
+    # hand-edited (where it should already agree, since Stage 1/2 generation
+    # is itself instructed to copy the model's Target Price verbatim).
     tp_raw = _prefer(
         report.get("cs_target_price"),
-        str(model_json.get("target_price")) if model_json and model_json.get("target_price") is not None else None,
         report.get("target_price"),
         _section_value(sections, "target_price"),
+        str(model_json.get("target_price")) if model_json and model_json.get("target_price") is not None else None,
         _extract_labeled_number(
             narrative,
             [
