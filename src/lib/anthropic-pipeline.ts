@@ -98,6 +98,7 @@ DATA FRESHNESS RULES — HARD REQUIREMENTS:
 4. When discussing "recent" results, "latest" guidance, or "current" market conditions, the data MUST be from the last 90 days. If web_search returns older data, EXPLICITLY flag it ("As of [date]: …") and search for newer.
 5. Do NOT default to FY24 or FY25 examples in any analysis unless those ARE the latest actuals. The latest year of actuals you should anchor on is FY${parseInt(fyShort.slice(2)) - 1}, with ${fyShort} being current/in-progress.
 6. If a number you would otherwise cite is older than the most recent reported quarter, run another web_search before writing it.
+7. EXCEPTION to rules 2-3 above: if the context below includes a "Financial Model Snapshot" section, that snapshot is confirmed and authoritative for THIS company's CMP, Target Price, Rating, Upside %, and SAARTHI — use it exactly as given instead of a web_search price for those specific figures. These freshness rules still apply to everything else (news, quarterly results commentary, sector data, and any company with no such snapshot).
 
 REQUIRED SEARCH TERMS (include at least 3 of these in your web_search calls):
 - "{COMPANY} ${reportedQuarter} results"
@@ -329,7 +330,8 @@ async function getFinancialModelPromptContext(sessionId?: string): Promise<Finan
 
     return {
       contextText: `
-## Financial Model Snapshot (numbers below are current as of the last Confirm)
+## Financial Model Snapshot — CONFIRMED, AUTHORITATIVE, DO NOT OVERRIDE
+This snapshot was recalculated from the user's own uploaded Excel model as of the last "Confirm Financial Model" click. It is more current and more trustworthy than anything web_search can find for CMP, Target Price, Rating, Upside %, or the assumptions below. Do NOT run web_search to find an alternate CMP or price and do NOT treat a different web_search figure as "fresher evidence" that overrides these — that instinct is exactly what produces a wrong, self-invented price. Use every value below EXACTLY as given, verbatim, in every section of the thesis/report that cites CMP, Target Price, Rating, Upside %, or SAARTHI. Web_search is still the right tool for everything this snapshot doesn't cover: news, management commentary, sector conditions, competitor moves, qualitative developments.
 - Base Year: ${String(model.base_year ?? 'N/A')}
 - Projection Years: ${projectionYears}
 - CMP: ${String(model.cmp ?? 'N/A')}
@@ -362,7 +364,7 @@ ${hasStaleNarrative ? `
 
 The "Original Model Draft" section above is background color only, NOT a source of truth — it was written once at initial generation and is never regenerated when the model is later edited. Give it far less weight than the fresh Financial Model Snapshot above, the Vault Briefing, and web_search. If the draft conflicts with current numbers or web research, trust the current data and ignore the draft.
 ` : ''}
-Use the Financial Model Snapshot above as an analyst-produced structured input for the current numbers. Keep Stage 1/2 outputs consistent with it unless fresher evidence from vault docs or web search clearly contradicts it, and call out contradictions explicitly.
+Repeat: CMP, Target Price, Rating, and Upside % come from the Financial Model Snapshot above, not from web_search and not from your own estimate. Every section of Stage 1/2 that cites these must match this snapshot exactly.
 `.trim(),
     };
   } catch (error) {
@@ -993,6 +995,7 @@ CRITICAL ALIGNMENT RULE FOR ENTIRE REPORT:
 
 For sections 13 to 18:
 - Output ONLY the requested data values. Do not add any extra wording or paragraphs.
+- If a "Financial Model Snapshot" appears in the context above, it is CONFIRMED and AUTHORITATIVE for this company. Copy its CMP, Target Price, Rating, and Upside % EXACTLY into sections 13/14/15/18 — do not recompute them, do not adjust them toward a web_search price, and do not treat a "fresher" web_search figure as reason to override them. Market Cap and Cap Category may still be derived/refreshed from that same CMP if the snapshot doesn't already state them. Only fall back to deriving these six values yourself from web_search when no Financial Model Snapshot is present in the context at all.
 
 Begin now. Do not include any preamble before the first ===SECTION=== marker.`,
   },
