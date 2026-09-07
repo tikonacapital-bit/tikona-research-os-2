@@ -934,15 +934,30 @@ def regenerate_json(ticker: str):
             ws_scen = wb["Scenario_Analysis"]
             def _read_scen(col_letter):
                 try:
+                    eps = ws_scen[f"{col_letter}5"].value
                     adj = ws_scen[f"{col_letter}7"].value
                     pe = ws_scen[f"{col_letter}8"].value
                     prob = ws_scen[f"{col_letter}9"].value
-                    tp = ws_scen[f"{col_letter}10"].value
+
+                    eps_f = float(eps) if eps is not None else 0.0
+                    adj_f = float(adj) if adj is not None else 0.0
+                    pe_f = float(pe) if pe is not None else 0.0
+
+                    # Row 10's own cached formula result (=EPS*(1+adj)*PE) has been
+                    # observed to go stale/wrong for the Bull/Bear columns after a
+                    # headless LibreOffice recalculation, even though Base recalculates
+                    # correctly and the sheet's own Weighted Target Price (row 13,
+                    # SUMPRODUCT) — which doesn't depend on row 10 — proves the true
+                    # EPS/adjustment/PE inputs read here ARE correct. Recompute the
+                    # target price directly from those inputs instead of trusting row
+                    # 10's cache, so this can't inherit whatever quirk affects that cell.
+                    target_price = eps_f * (1 + adj_f) * pe_f
+
                     return {
-                        "eps_adjustment_pct": round(float(adj) * 100, 2) if adj is not None else 0.0,
-                        "target_pe": float(pe) if pe is not None else 0.0,
+                        "eps_adjustment_pct": round(adj_f * 100, 2),
+                        "target_pe": pe_f,
                         "probability_pct": round(float(prob) * 100, 2) if prob is not None else 0.0,
-                        "target_price": float(tp) if tp is not None else 0.0,
+                        "target_price": round(target_price, 2),
                     }
                 except Exception:
                     return {"eps_adjustment_pct": 0.0, "target_pe": 0.0, "probability_pct": 0.0, "target_price": 0.0}
