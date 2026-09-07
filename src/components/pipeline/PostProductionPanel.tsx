@@ -21,7 +21,7 @@ import {
   updatePodcastScript,
   updateVideoScript,
 } from '@/lib/api';
-import { runPptCopywriting } from '@/lib/anthropic-pipeline';
+import { runPptCopywriting, getFinancialModelPromptContext } from '@/lib/anthropic-pipeline';
 import { savePptContent, getPptContent } from '@/lib/pipeline-api';
 import { createRecommendation } from '@/lib/recommendations-api';
 import type { ResearchReport } from '@/types/database';
@@ -366,6 +366,12 @@ export default function PostProductionPanel({
       const report = await getReportBySession(sessionId);
       const reportData = report as Record<string, unknown> | null;
       const sec = (k: string) => stage2Sections.find((s) => s.key === k)?.content?.trim() ?? '';
+      // Pull the confirmed model's Bull/Base/Bear scenario numbers so the
+      // copywriting pass has an authoritative anchor for bull_content /
+      // bear_content instead of re-deriving figures from the Scenario
+      // Analysis section's prose (which can drift or get garbled during the
+      // length-compression rewrite).
+      const fmContext = await getFinancialModelPromptContext(sessionId);
       const meta = {
         cmp: (reportData?.cs_current_market_price as string) || sec('current_market_price'),
         target: (reportData?.cs_target_price as string) || sec('target_price'),
@@ -374,6 +380,10 @@ export default function PostProductionPanel({
         marketCapCategory: (reportData?.cs_market_cap_category as string) || sec('market_cap_category'),
         rating: (reportData?.cs_rating as string) || sec('rating'),
         saarthiScore: null,
+        bullTarget: fmContext.scenario?.bullTarget ?? null,
+        baseTarget: fmContext.scenario?.baseTarget ?? null,
+        bearTarget: fmContext.scenario?.bearTarget ?? null,
+        weightedTarget: fmContext.scenario?.weightedTarget ?? null,
       };
       const { content } = await runPptCopywriting(
         companyName,
