@@ -4107,10 +4107,106 @@ def _extract_summary_dashboard_from_excel(excel_path: str) -> tuple[list[str], l
 def _extract_summary_dashboard_from_excel_safe(
     excel_path: str,
 ) -> tuple[list[str], list[tuple[str, list[tuple[str, list[float]]]]]]:
+    """Builds the slide-1 summary table from the model's own pre-computed
+    "Fin_Summary" sheet (the one titled "... Financial Summary Dashboard" —
+    exactly what the user sees and confirms in Excel) when it exists,
+    falling back to the legacy P&L/Balance Sheet/Cash Flow/Ratios sheets
+    for older models generated before Fin_Summary existed.
+
+    Reconstructing figures independently from those legacy sheets (the
+    previous approach) can silently disagree with Fin_Summary: their EBITDA
+    is derived by re-summing assumption-driven expense lines rather than
+    reading the actual, and their Working Capital was a different formula
+    entirely (Receivables + Inventory - Other Liabilities, vs the model's
+    actual Financials_Table Working Capital row) — confirmed live on a
+    session where the PPT's EBITDA/Working Capital rows for the most recent
+    "actual" year onward diverged sharply from the confirmed dashboard.
+    Reading Fin_Summary directly makes this a straight mirror of what's on
+    screen, so it can't drift from it again. Percentage rows on Fin_Summary
+    (PAT Margin %, CFO/EBITDA %, ROE %, ROCE %) store the underlying
+    fraction (e.g. 0.023), with the "0.0%" number format doing the ×100
+    only for on-screen display in Excel — openpyxl reads the raw fraction,
+    so those must be multiplied by 100 here or every one renders as "0.0%".
+    """
     from openpyxl import load_workbook
 
     wb = load_workbook(excel_path, data_only=False)
     cache: dict[tuple[str, str], float] = {}
+
+    def _norm_label(value: object) -> str:
+        text = str(value or "").strip()
+        text = text.replace("â‚¹", "₹").replace("Rs.", "Rs")
+        return " ".join(text.lower().split())
+
+    if "Fin_Summary" in wb.sheetnames:
+        fs = wb["Fin_Summary"]
+
+        header_row = None
+        for r in range(1, min(fs.max_row, 10) + 1):
+            if _norm_label(fs.cell(r, 1).value) == "particulars":
+                header_row = r
+                break
+
+        if header_row is not None:
+            value_cols = [c for c in range(2, fs.max_column + 1) if str(fs.cell(header_row, c).value or "").strip()]
+            fs_actual_cols = [c for c in value_cols if str(fs.cell(header_row, c).value).strip().upper().endswith("A")]
+            fs_proj_cols = [c for c in value_cols if str(fs.cell(header_row, c).value).strip().upper().endswith("E")]
+            fs_selected_cols = fs_actual_cols[-3:] + fs_proj_cols[:2]
+            fs_headers = [str(fs.cell(header_row, c).value).strip() for c in fs_selected_cols]
+
+            def fs_find_row(*labels: str) -> int:
+                wanted = {_norm_label(label) for label in labels if label}
+                for r in range(header_row + 1, fs.max_row + 1):
+                    if _norm_label(fs.cell(r, 1).value) in wanted:
+                        return r
+                raise KeyError(f"Row {labels!r} not found in Fin_Summary")
+
+            def fs_vals(*row_labels: str, pct: bool = False) -> list[float]:
+                row = fs_find_row(*row_labels)
+                out: list[float] = []
+                for col in fs_selected_cols:
+                    v = _evaluate_excel_formula_cell(wb, fs.title, fs.cell(row, col).coordinate, cache) or 0.0
+                    out.append(v * 100 if pct else v)
+                return out
+
+            try:
+                fs_sections: list[tuple[str, list[tuple[str, list[float]]]]] = [
+                    ("PROFIT & LOSS", [
+                        ("Net Revenue", fs_vals("Net Revenue (Rs Cr)")),
+                        ("EBITDA", fs_vals("EBITDA (Rs Cr)")),
+                        ("PAT", fs_vals("PAT (Rs Cr)")),
+                        ("PAT Margin %", fs_vals("PAT Margin %", pct=True)),
+                        ("EPS", fs_vals("EPS (Rs)", "EPS (₹)", "EPS")),
+                    ]),
+                    ("BALANCE SHEET", [
+                        ("Net Worth", fs_vals("Net Worth (Rs Cr)")),
+                        ("Total Debt", fs_vals("Total Debt (Rs Cr)")),
+                        ("Capital Employed", fs_vals("Capital Employed (Rs Cr)")),
+                        ("Net Fixed Assets", fs_vals("Net Fixed Assets (Rs Cr)")),
+                        ("Working Capital", fs_vals("Working Capital (Rs Cr)")),
+                        ("Debt/Equity", fs_vals("Debt/Equity (x)")),
+                    ]),
+                    ("CASH FLOW", [
+                        ("CFO", fs_vals("CFO (Rs Cr)")),
+                        ("Capex", fs_vals("Capex (Rs Cr)")),
+                        ("Free Cash Flow", fs_vals("Free Cash Flow (Rs Cr)")),
+                        ("CFO/EBITDA %", fs_vals("CFO/EBITDA %", pct=True)),
+                    ]),
+                    ("KEY RATIOS", [
+                        ("ROE %", fs_vals("ROE %", pct=True)),
+                        ("ROCE %", fs_vals("ROCE %", pct=True)),
+                        ("Inventory Days", fs_vals("Inventory Days")),
+                    ]),
+                    ("VALUATIONS (AT CMP)", [
+                        ("P/E (x)", fs_vals("P/E (x)")),
+                        ("EV/EBITDA (x)", fs_vals("EV/EBITDA (x)")),
+                    ]),
+                ]
+                return fs_headers, fs_sections
+            except KeyError as exc:
+                logger.warning("Fin_Summary row lookup failed (%s) — falling back to legacy P&L sheets", exc)
+
+    # ── Fallback: older models generated before Fin_Summary existed ────────
     pnl = wb["P&L"]
     bs = wb["Balance Sheet"]
     cf = wb["Cash Flow"]
@@ -4147,7 +4243,16 @@ def _extract_summary_dashboard_from_excel_safe(
         return out
 
     def pct_from_series(numerator: list[float], denominator: list[float]) -> list[float]:
-        return [round((num / den) * 100, 1) if den else 0.0 for num, den in zip(numerator, denominator)]
+        # Returns a raw fraction (e.g. 0.70), matching the sheet-read
+        # convention below — the pct100() wrapper at each call site does the
+        # ×100 for display, so this must NOT also multiply here.
+        return [round(num / den, 4) if den else 0.0 for num, den in zip(numerator, denominator)]
+
+    def pct100(values: list[float]) -> list[float]:
+        # Same "sheet stores a fraction, Excel's own number format does the
+        # ×100 for on-screen display" convention as Fin_Summary — openpyxl
+        # only ever sees the raw fraction, so this must be applied here too.
+        return [v * 100 for v in values]
 
     ebitda_vals = vals(pnl, "EBITDA")
     cfo_vals = vals(cf, "CFO")
@@ -4158,7 +4263,7 @@ def _extract_summary_dashboard_from_excel_safe(
             ("Net Revenue", vals(pnl, "Revenue")),
             ("EBITDA", ebitda_vals),
             ("PAT", vals(pnl, "Profit After Tax (PAT)")),
-            ("PAT Margin %", vals(pnl, "PAT Margin %")),
+            ("PAT Margin %", pct100(vals(pnl, "PAT Margin %"))),
             ("EPS", eps_vals),
         ]),
         ("BALANCE SHEET", [
@@ -4182,17 +4287,17 @@ def _extract_summary_dashboard_from_excel_safe(
             ("Free Cash Flow", vals(cf, "Free Cash Flow (FCF)")),
             (
                 "CFO/EBITDA %",
-                vals(
+                pct100(vals(
                     ratios,
                     "CFO/EBITDA %",
                     "CFO/EBITDA",
                     default=pct_from_series(cfo_vals, ebitda_vals),
-                ),
+                )),
             ),
         ]),
         ("KEY RATIOS", [
-            ("ROE %", vals(ratios, "ROE %")),
-            ("ROCE %", vals(ratios, "ROCE %")),
+            ("ROE %", pct100(vals(ratios, "ROE %"))),
+            ("ROCE %", pct100(vals(ratios, "ROCE %"))),
             ("Inventory Days", vals(ratios, "Inventory Days")),
         ]),
         ("VALUATIONS (AT CMP)", [
