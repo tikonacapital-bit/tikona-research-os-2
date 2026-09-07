@@ -5290,16 +5290,22 @@ def generate_pptx_for_report(report_id: str, session_id: str, *, use_mock: bool 
 
     company = _build_company(report, session, sections)
     
-    # If financial_model_url is provided, download Excel and extract data
+    # financial_model_url (the request's Excel URL) used to be preferred here,
+    # re-deriving model_json via excel_injector.extract_json_from_excel() —
+    # a crude best-effort fallback that only recognizes sheets literally named
+    # "assumptions"/"projections"/"historical"/"ratios" and has no idea about
+    # scenario_analysis, saarthi_scorecard, cmp, target_price, or any
+    # Operational_Data-derived chart series. The frontend sends this URL on
+    # every request once a model exists, so this branch ran every single
+    # time — silently discarding the properly-maintained JSON sidecar in
+    # favor of a near-empty structure. That's why Story-in-Charts panels
+    # came out blank: fin_model had no operational data to plot, even though
+    # /preview-placeholders (which never took this path) showed everything
+    # correctly. Always use the canonical, ticker-based JSON instead — the
+    # same source /preview-placeholders already relies on.
     if financial_model_url:
-        logger.info("Downloading financial model from Excel: %s", financial_model_url)
-        try:
-            model_json = _download_model_from_excel(financial_model_url, warnings)
-        except Exception as e:
-            logger.warning("Failed to download Excel model, falling back to JSON: %s", e)
-            model_json = _download_model_json(client, ticker, warnings)
-    else:
-        model_json = _download_model_json(client, ticker, warnings)
+        logger.info("financial_model_url provided (%s) — ignored for model_json; using canonical ticker-based JSON instead", financial_model_url)
+    model_json = _download_model_json(client, ticker, warnings)
     
     metadata = _build_metadata(report, sections, model_json=model_json)
     fin_model = _build_financial_model(ticker, model_json, warnings)
