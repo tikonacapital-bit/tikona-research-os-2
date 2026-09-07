@@ -144,6 +144,16 @@ export interface PptCopyMetadata {
   marketCapCategory?: string | null;
   rating?: string | null;
   saarthiScore?: string | number | null;
+  // Bull/Base/Bear scenario snapshot from the confirmed financial model (see
+  // getFinancialModelPromptContext in anthropic-pipeline.ts). Without this,
+  // bull_content/bear_content had no authoritative numbers to anchor to and
+  // the copywriting pass would pull whatever figures happened to appear in
+  // the Stage 2 "Scenario Analysis" prose — which can drift from the model
+  // (or get re-derived/garbled during the length-compression rewrite).
+  bullTarget?: string | number | null;
+  baseTarget?: string | number | null;
+  bearTarget?: string | number | null;
+  weightedTarget?: string | number | null;
 }
 
 /** Strip ```json fences / leading prose from a Claude response. */
@@ -260,8 +270,19 @@ Rules (strict):
 - The thesis panels (investment_thesis_s1, investment_thesis_s4, investment_thesis_detailed) must each have a DIFFERENT shape — same facts allowed, but different opening, different emphasis, and the lengths must clearly differ (s1 < s4 < detailed).
 - KPIs (KPI_heading_1..6 + KPI_1..6): pick SIX company-specific operating or financial metrics that are NOT already shown on slide 1. Slide-1 chips are CMP, Target, Market Cap, Cap Category, SAARTHI Score, NSE code — DO NOT repeat any of these as KPIs. Good KPI examples: Revenue (FY26), EBITDA Margin, PAT Growth, ROE, ROCE, Capacity, Plants, Countries, Debt/Equity, FCF Yield, etc. Heading = 1-3 words; Value = the actual number with units (e.g. "₹4,265 Cr", "11.8%", "70+", "0.3x").
 - Numbers: keep ₹ symbol, keep crore/lakh units as written, keep FY labels (FY26A / FY28E). Don't fabricate figures — if a number is not in the source material, omit the claim rather than guessing.
+- If a "Scenario Analysis Snapshot" is given below, bull_content and bear_content MUST state exactly its Bull / Bear target prices respectively — never a different number pulled from the report prose, and never an average or re-derived figure.
 - Length discipline: every field has a char budget. The template's text boxes are sized for those budgets — under-filling leaves visually empty boxes on the slide. Aim for 80-100% of each budget. If a field's source section looks thin, draw from RELATED sections that cover the same topic (e.g. for company_overview pull from company_background + business_model + industry_overview; for forecast_assumptions pull from investment_rationale + scenario_analysis) rather than coming in short. Only fall below 70% of budget if the source material truly has nothing more to say on that topic.
 - Padding rule: extra length must come from MORE specific facts, numbers, or named details — never from filler adjectives, restatements, or generic industry observations.`;
+
+  const hasScenario = metadata.bullTarget != null || metadata.baseTarget != null || metadata.bearTarget != null;
+  const scenarioBlock = hasScenario ? `
+
+## Scenario Analysis Snapshot — AUTHORITATIVE, DO NOT ALTER
+These are the exact Bull/Base/Bear target prices from the confirmed financial model. bull_content MUST cite the Bull target price below and bear_content MUST cite the Bear target price below — do not use, average, round differently, or re-derive any other figure for these, even if the Stage 2 "Scenario Analysis" section text mentions a different number.
+- Bull Target Price: ${fmt(metadata.bullTarget)}
+- Base Target Price: ${fmt(metadata.baseTarget)}
+- Bear Target Price: ${fmt(metadata.bearTarget)}
+- Weighted Target Price: ${fmt(metadata.weightedTarget)}` : '';
 
   const user = `Company: ${companyName} (NSE: ${nseSymbol}) | Sector: ${sectorName}
 
@@ -272,7 +293,7 @@ Rules (strict):
 - Market Cap: ${fmt(metadata.marketCap)}
 - Cap Category: ${fmt(metadata.marketCapCategory)}
 - Rating: ${fmt(metadata.rating)}
-- SAARTHI Score: ${fmt(metadata.saarthiScore)}
+- SAARTHI Score: ${fmt(metadata.saarthiScore)}${scenarioBlock}
 
 ## Approved Stage 2 sections (source material)
 

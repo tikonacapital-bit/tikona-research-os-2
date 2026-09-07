@@ -136,6 +136,15 @@ interface AnthropicResult {
 
 interface FinancialModelPromptContext {
   contextText: string;
+  // Raw Bull/Base/Bear/Weighted target prices, surfaced separately from
+  // contextText so callers that need the exact numbers (e.g. the PPT
+  // copywriting pass) don't have to re-parse them back out of markdown.
+  scenario?: {
+    bullTarget?: number | null;
+    baseTarget?: number | null;
+    bearTarget?: number | null;
+    weightedTarget?: number | null;
+  };
 }
 
 async function callAnthropicWithSearch(options: AnthropicCallOptions): Promise<AnthropicResult> {
@@ -243,7 +252,7 @@ async function callAnthropicWithSearch(options: AnthropicCallOptions): Promise<A
   return { text: accumulatedText, tokensUsed: totalTokensUsed, citations: [...new Set(citations)] };
 }
 
-async function getFinancialModelPromptContext(sessionId?: string): Promise<FinancialModelPromptContext> {
+export async function getFinancialModelPromptContext(sessionId?: string): Promise<FinancialModelPromptContext> {
   if (!sessionId) return { contextText: '' };
 
   const { data } = await supabase
@@ -348,7 +357,19 @@ ${fmtCase('Bear', scenario.bear)}
   - **Weighted Target Price:** ₹${String(scenario.weighted_tp ?? 'N/A')}`;
     })() : '';
 
+    const scenarioNum = (c: unknown): number | null => {
+      const cc = (c as Record<string, unknown> | undefined) ?? {};
+      const v = cc.target_price;
+      return typeof v === 'number' ? v : (typeof v === 'string' && v.trim() !== '' ? Number(v) : null);
+    };
+
     return {
+      scenario: scenario ? {
+        bullTarget: scenarioNum(scenario.bull),
+        baseTarget: scenarioNum(scenario.base),
+        bearTarget: scenarioNum(scenario.bear),
+        weightedTarget: typeof scenario.weighted_tp === 'number' ? scenario.weighted_tp : null,
+      } : undefined,
       contextText: `
 ## Financial Model Snapshot — CONFIRMED, AUTHORITATIVE, DO NOT OVERRIDE
 This snapshot was recalculated from the user's own uploaded Excel model as of the last "Confirm Financial Model" click. It is more current and more trustworthy than anything web_search can find for CMP, Target Price, Rating, Upside %, the Bull/Base/Bear scenarios, or the assumptions below. Do NOT run web_search to find an alternate CMP or price, do NOT derive your own Bull/Base/Bear target prices, and do NOT treat a different web_search figure as "fresher evidence" that overrides these — that instinct is exactly what produces a wrong, self-invented price. Use every value below EXACTLY as given, verbatim, in every section of the thesis/report that cites CMP, Target Price, Rating, Upside %, SAARTHI, or scenario/target-price-range analysis. Web_search is still the right tool for everything this snapshot doesn't cover: news, management commentary, sector conditions, competitor moves, qualitative developments.
