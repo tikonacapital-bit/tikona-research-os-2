@@ -962,17 +962,47 @@ def regenerate_json(ticker: str):
                 except Exception:
                     return {"eps_adjustment_pct": 0.0, "target_pe": 0.0, "probability_pct": 0.0, "target_price": 0.0}
 
+            bull_case = _read_scen("B")
+            base_case = _read_scen("C")
+            bear_case = _read_scen("D")
+
+            # Compute the weighted target directly from the (now-recomputed, reliable)
+            # per-case target prices and probabilities instead of trusting row 13's own
+            # cached SUMPRODUCT result -- the same class of stale-cache risk that
+            # affected row 10, just one level up. This also makes it consistent by
+            # construction with whatever bull/base/bear now say, instead of two
+            # independently-cached numbers that could silently drift apart again.
             try:
-                weighted_tp = float(ws_scen["B13"].value or 0.0)
+                weighted_tp = round(
+                    bull_case["probability_pct"] / 100 * bull_case["target_price"]
+                    + base_case["probability_pct"] / 100 * base_case["target_price"]
+                    + bear_case["probability_pct"] / 100 * bear_case["target_price"],
+                    2,
+                )
             except Exception:
                 weighted_tp = 0.0
 
             model_json["scenario_analysis"] = {
-                "bull": _read_scen("B"),
-                "base": _read_scen("C"),
-                "bear": _read_scen("D"),
+                "bull": bull_case,
+                "base": base_case,
+                "bear": bear_case,
                 "weighted_tp": weighted_tp,
             }
+
+            # Per user decision: the Weighted Target Price is the single authoritative
+            # target price everywhere (report, thesis, PPT) -- overriding whatever the
+            # separate Financial Summary!B5 cell held, which can independently drift
+            # out of sync with the scenario inputs. Keep upside_pct consistent with it;
+            # the later yfinance CMP fetch below will recompute upside_pct again against
+            # a live price, but this keeps things correct even if that fetch fails.
+            if weighted_tp:
+                model_json["target_price"] = weighted_tp
+                try:
+                    cmp_now = float(model_json.get("cmp") or 0)
+                    if cmp_now:
+                        model_json["upside_pct"] = round((weighted_tp / cmp_now - 1) * 100, 2)
+                except Exception:
+                    pass
 
         wb.close()
 
