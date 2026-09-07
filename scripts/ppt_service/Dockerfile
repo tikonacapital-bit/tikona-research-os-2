@@ -27,10 +27,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Install Chromium for Playwright (layout measurement + PDF export)
 RUN python -m playwright install chromium
 
-# Install Node dependencies (pptxgenjs)
-COPY package.json .
-RUN npm install --production
-
 # Copy application code
 COPY . .
 
