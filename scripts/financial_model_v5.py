@@ -1269,10 +1269,10 @@ STEP 8 — INVESTMENT THESIS with SAARTHI scoring (S+A1+A2+R+T+H+I = 100 max):
   A1 — Addressable Market & Adjacency (0-10)
   A2 — Asymmetric Pricing Power (0-15)
   R — Reinvestment Quality (0-15)
-  T — Track Record Through Adversity (0-10)
+  T — Track Record Through Adversity (0-15)
   H — Human Capital & Institutional DNA (0-15)
   I — Inflection Point Identification (0-15)
-  Sum of maxes = 95 (legacy 100-pt scale, normalize: saarthi_total = sum(scores)).
+  Sum of maxes = 100 exactly (A1 is the only 10-point dimension; every other dimension is 0-15).
   STRONG BUY≥80 | BUY 65-79 | ACCUMULATE 55-64 | HOLD 45-54 | UNDERPERFORM 35-44 | SELL<35
 
   Provide BOTH formats below:
@@ -1412,7 +1412,7 @@ Return ONLY valid JSON. Start with {{ end with }}. No prose, no markdown fences.
       {{"key":"A1","name":"Addressable Market & Adjacency","score":n,"max_score":10,"rationale":str}},
       {{"key":"A2","name":"Asymmetric Pricing Power","score":n,"max_score":15,"rationale":str}},
       {{"key":"R","name":"Reinvestment Quality","score":n,"max_score":15,"rationale":str}},
-      {{"key":"T","name":"Track Record Through Adversity","score":n,"max_score":10,"rationale":str}},
+      {{"key":"T","name":"Track Record Through Adversity","score":n,"max_score":15,"rationale":str}},
       {{"key":"H","name":"Human Capital & Institutional DNA","score":n,"max_score":15,"rationale":str}},
       {{"key":"I","name":"Inflection Point Identification","score":n,"max_score":15,"rationale":str}}
     ],
@@ -4624,7 +4624,7 @@ def mk_saarthi(wb, ctx):
         ("A1", "Addressable Market & Adjacency",    10),
         ("A2", "Asymmetric Pricing Power",          15),
         ("R",  "Reinvestment Quality",              15),
-        ("T",  "Track Record Through Adversity",    10),
+        ("T",  "Track Record Through Adversity",    15),
         ("H",  "Human Capital & Institutional DNA", 15),
         ("I",  "Inflection Point Identification",   15),
     ]

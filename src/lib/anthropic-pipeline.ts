@@ -742,17 +742,19 @@ You MUST use the SAARTHI Scorecard framework to arrive at your rating. SAARTHI i
 - **A — Addressable Market & Adjacency (max 10):** TAM headroom + optionality to expand without rebuilding
 - **A — Asymmetric Pricing Power (max 15):** Can it set prices or does it accept them?
 - **R — Reinvestment Quality (max 15):** ROCE × reinvestment rate = compounding engine
-- **T — Track Record Through Adversity (max 10):** How did it behave when conditions were worst?
-- **H — Human Capital & Institutional DNA (max 10):** Is quality person-dependent or system-dependent?
+- **T — Track Record Through Adversity (max 15):** How did it behave when conditions were worst?
+- **H — Human Capital & Institutional DNA (max 15):** Is quality person-dependent or system-dependent?
 - **I — Inflection Point Identification (max 15):** What specific event forces market repricing in 6–18 months?
 
+(A1 is the only 10-point dimension — every other dimension is worth 15, so the maxes sum to exactly 100.)
+
 Rating scale based on total SAARTHI score:
-- 85–100 → STRONG BUY (maximum position; core holding)
-- 70–84 → BUY (standard position; add on dips)
-- 55–69 → ACCUMULATE (build gradually; await catalyst confirmation)
-- 40–54 → HOLD (do not add; monitor I-score for catalyst)
-- 25–39 → UNDERPERFORM (reduce on strength)
-- <25 → SELL/AVOID (exit or do not initiate)
+- 80–100 → STRONG BUY (maximum position; core holding)
+- 65–79 → BUY (standard position; add on dips)
+- 55–64 → ACCUMULATE (build gradually; await catalyst confirmation)
+- 45–54 → HOLD (do not add; monitor I-score for catalyst)
+- 35–44 → UNDERPERFORM (reduce on strength)
+- <35 → SELL/AVOID (exit or do not initiate)
 
 Score each dimension honestly with specific evidence. The total score determines the rating — do NOT override it.
 
@@ -797,10 +799,10 @@ Does the company set prices (price maker) or accept them (price taker)? Evaluate
 ### R — Reinvestment Quality (out of 15)
 What is the ROCE and how much of earnings are being reinvested at high returns? Evaluate: ROCE trend, reinvestment rate, capital allocation discipline, and incremental ROCE on new projects.
 
-### T — Track Record Through Adversity (out of 10)
+### T — Track Record Through Adversity (out of 15)
 How did the company perform during COVID, input cost spikes, demand slowdowns, or regulatory shocks? Did it gain or lose market share during stress? Did margins recover quickly?
 
-### H — Human Capital & Institutional DNA (out of 10)
+### H — Human Capital & Institutional DNA (out of 15)
 Is performance dependent on a single promoter/leader, or is it embedded in systems, processes, and culture? Evaluate management depth, succession planning, governance, and institutional processes.
 
 ### I — Inflection Point Identification (out of 15)
@@ -809,7 +811,7 @@ What specific, identifiable event in the next 6-18 months could force the market
 ### SAARTHI Total & Rating
 - Add up all 7 scores
 - State the total out of 100
-- Map to the rating: STRONG BUY (85-100), BUY (70-84), ACCUMULATE (55-69), HOLD (40-54), UNDERPERFORM (25-39), SELL/AVOID (<25)
+- Map to the rating: STRONG BUY (80-100), BUY (65-79), ACCUMULATE (55-64), HOLD (45-54), UNDERPERFORM (35-44), SELL/AVOID (<35)
 
 ## Investment Thesis
 Clear 3-5 paragraph thesis. Start with the SAARTHI rating and total score. Explain WHY with specific data, linking back to the highest and lowest scoring dimensions.
@@ -963,14 +965,14 @@ Apply the proprietary SAARTHI Scorecard (100-point system) with detailed analysi
 - **A — Addressable Market & Adjacency (max 10):** TAM headroom + optionality to expand without rebuilding. Evaluate whitespace and product adjacencies.
 - **A — Asymmetric Pricing Power (max 15):** Can it set prices or does it accept them? Evaluate brand strength, switching costs, margin resilience during inflation.
 - **R — Reinvestment Quality (max 15):** ROCE × reinvestment rate = compounding engine. Evaluate ROCE trend, capital allocation discipline.
-- **T — Track Record Through Adversity (max 10):** How did it behave during COVID, input cost spikes, demand slowdowns? Did it gain or lose market share during stress?
-- **H — Human Capital & Institutional DNA (max 10):** Is quality person-dependent or system-dependent? Evaluate management depth, succession planning, governance.
+- **T — Track Record Through Adversity (max 15):** How did it behave during COVID, input cost spikes, demand slowdowns? Did it gain or lose market share during stress?
+- **H — Human Capital & Institutional DNA (max 15):** Is quality person-dependent or system-dependent? Evaluate management depth, succession planning, governance.
 - **I — Inflection Point Identification (max 15):** What specific event forces market repricing in 6–18 months? Be specific: new capacity, regulatory approval, margin expansion trigger.
 
 CRITICAL REQUIREMENT: For each dimension, copy the exact score (e.g. S: 12/15, A1: 8/10, etc.) and total score (e.g. 78/100) from the provided Stage 1 Investment Thesis in the context block. Do NOT re-calculate or change these numbers. Make sure they are identical.
 
 For each dimension, output a heading in the exact format: "S — Scalability of Core Engine (Score: X/15)" where X is the score from the context. Below the heading, provide a 2-3 sentence justification with specific data and key evidence. Do NOT repeat the score (e.g., "Score: X/15" or similar) anywhere inside the body text. The score must only appear once, inside the heading.
-Sum all scores out of 100 and map to: STRONG BUY (85-100), BUY (70-84), ACCUMULATE (55-69), HOLD (40-54), UNDERPERFORM (25-39), SELL/AVOID (<25).
+Sum all scores out of 100 and map to: STRONG BUY (80-100), BUY (65-79), ACCUMULATE (55-64), HOLD (45-54), UNDERPERFORM (35-44), SELL/AVOID (<35).
 
 ---
 
