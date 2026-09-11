@@ -759,27 +759,151 @@ def regenerate_json(ticker: str):
         # 3. Load Excel and update model_json fields
         wb = openpyxl.load_workbook(excel_path, data_only=True)
         
-        # Financial Summary Sheet
-        if "Financial Summary" in wb.sheetnames:
-            ws_fs = wb["Financial Summary"]
-            shares_cr = ws_fs["B9"].value
-            if shares_cr is not None:
-                model_json["shares_cr"] = float(shares_cr)
-            base_year = ws_fs["B10"].value
-            if base_year is not None:
-                model_json["base_year"] = str(base_year)
-            rating = ws_fs["B7"].value
+        # Rating / Market Cap / Shares / Base Year.
+        # BUG FIX: this used to look for a sheet called "Financial Summary",
+        # which has never existed in the generator (the actual sheet is
+        # "Valuation"; Shares/Base Year/Market Cap live on "Assumptions").
+        # Because `"Financial Summary" in wb.sheetnames` was always False,
+        # this whole block silently no-op'd on every single "Confirm
+        # Financial Model" click since it was written -- rating, market_cap,
+        # shares_cr, and base_year were frozen at whatever the very first
+        # "Generate Financial Model" draft produced, even though the Excel's
+        # own Rating cell (Valuation!B8 = SAARTHI!C13) recalculates live and
+        # can move (e.g. after a SAARTHI rescoring or a manual edit).
+        #
+        # Deliberately NOT reading target_price/upside_pct here even though
+        # they also live on this sheet (Valuation!B9/B10) -- those chain back
+        # to Scenario_Analysis!B13's cached SUMPRODUCT cell, the same
+        # stale-after-LibreOffice-recalc risk already fixed for row 10/13 in
+        # the Scenario Analysis block further below, which remains the sole,
+        # freshly-recomputed source for target_price/upside_pct.
+        if "Valuation" in wb.sheetnames:
+            ws_val = wb["Valuation"]
+            rating = ws_val["B8"].value
             if rating is not None:
                 model_json["rating"] = str(rating)
-            target_price = ws_fs["B5"].value
-            if target_price is not None:
-                model_json["target_price"] = float(target_price)
-            upside_val = ws_fs["B6"].value
-            if upside_val is not None:
-                model_json["upside_pct"] = round(float(upside_val) * 100, 2)
-            market_cap = ws_fs["B8"].value
+
+        if "Assumptions" in wb.sheetnames:
+            ws_meta = wb["Assumptions"]
+            shares_cr = ws_meta["B2"].value
+            if shares_cr is not None:
+                model_json["shares_cr"] = float(shares_cr)
+            base_year = ws_meta["B4"].value
+            if base_year is not None:
+                model_json["base_year"] = str(base_year)
+            market_cap = ws_meta["B6"].value
             if market_cap is not None:
                 model_json["market_cap"] = float(market_cap)
+
+        # DCF / PE / EV-EBITDA / Blended Fair Value.
+        # These live on the "Valuation" sheet as plain input cells (B3/B4/B5)
+        # computed ONCE by compute_derived_facts() at the very first "Generate
+        # Financial Model" click, then never touched again -- Confirm never
+        # recomputed them, so editing growth rates, target multiples, WACC, or
+        # CMP afterward had zero effect on these three numbers, even though
+        # Rating/Target Price (SAARTHI + Scenario Analysis) correctly do
+        # refresh. Recompute them here with the exact same methodology
+        # (pe_fv = horizon EPS x target PE; ev_ebitda_fv = (horizon EBITDA x
+        # target EV/EBITDA - total debt) / shares; dcf_fv = PV of projected
+        # FCF + terminal value at WACC), but reading live off the current,
+        # just-recalculated Financials_Table/Assumptions instead of the
+        # original AI draft.
+        try:
+            if "Financials_Table" in wb.sheetnames and "Assumptions" in wb.sheetnames:
+                ft = wb["Financials_Table"]
+                asm = wb["Assumptions"]
+
+                def _norm(v):
+                    return str(v or "").strip().lower()
+
+                # Year-header row on Financials_Table is always row 4 (see
+                # mk_financials_table / _ext_year_header): col A = "Particulars",
+                # cols B.. = "FY24A".."FY28E".
+                proj_cols = [
+                    c for c in range(2, ft.max_column + 1)
+                    if _norm(ft.cell(4, c).value).upper().endswith("E")
+                ]
+                # Horizon = 2nd projection year -- matches how Scenario Analysis
+                # and the thesis's own target-price derivation pick a horizon.
+                horizon_col = proj_cols[1] if len(proj_cols) > 1 else (proj_cols[0] if proj_cols else None)
+
+                if horizon_col:
+                    F_EBITDA, F_EPS, F_TOTDEBT, F_CFO, F_CAPEX = 10, 19, 24, 31, 35
+
+                    def ft_num(row, col):
+                        v = ft.cell(row, col).value
+                        return float(v) if isinstance(v, (int, float)) else 0.0
+
+                    horizon_eps = ft_num(F_EPS, horizon_col)
+                    horizon_ebitda = ft_num(F_EBITDA, horizon_col)
+                    horizon_debt = ft_num(F_TOTDEBT, horizon_col)
+
+                    def asm_num(row, default=0.0):
+                        v = asm.cell(row, 2).value
+                        return float(v) if isinstance(v, (int, float)) else default
+
+                    # Same fixed cells the "Assumptions Sheet" block just
+                    # below already reads (B42=WACC, B43=Terminal Growth,
+                    # B44=Target PE, B45=Target EV/EBITDA) -- proven stable
+                    # positions, not a dynamic row search.
+                    wacc = asm_num(42)
+                    tgrow = asm_num(43)
+                    target_pe = asm_num(44)
+                    target_ev_ebitda = asm_num(45) or None
+                    shares_cr = float(model_json.get("shares_cr") or asm.cell(2, 2).value or 1.0) or 1.0
+
+                    pe_fv = round(horizon_eps * target_pe, 2) if target_pe else 0.0
+                    ev_ebitda_fv = None
+                    if target_ev_ebitda and horizon_ebitda > 0:
+                        ev_ebitda_fv = round((horizon_ebitda * target_ev_ebitda - horizon_debt) / shares_cr, 2)
+
+                    dcf_fv = 0.0
+                    if wacc > 0 and wacc > tgrow:
+                        fcfs = [ft_num(F_CFO, c) - ft_num(F_CAPEX, c) for c in proj_cols]
+                        r_rate = wacc / 100.0
+                        g_rate = tgrow / 100.0
+                        pv = sum(fcf / ((1 + r_rate) ** i) for i, fcf in enumerate(fcfs, 1))
+                        if fcfs and (r_rate - g_rate) > 0:
+                            terminal_fcf = fcfs[-1] * (1 + g_rate)
+                            terminal_value = terminal_fcf / (r_rate - g_rate)
+                            pv += terminal_value / ((1 + r_rate) ** len(fcfs))
+                        dcf_fv = round(pv / shares_cr, 2) if shares_cr else 0.0
+
+                    if ev_ebitda_fv is not None:
+                        blended_fv = round(0.4 * dcf_fv + 0.3 * pe_fv + 0.3 * ev_ebitda_fv, 2)
+                    else:
+                        blended_fv = round(0.6 * dcf_fv + 0.4 * pe_fv, 2)
+
+                    val = dict(model_json.get("valuation") or {})
+                    val["dcf_fair_value"] = dcf_fv
+                    val["pe_fair_value"] = pe_fv
+                    val["ev_ebitda_fair_value"] = ev_ebitda_fv
+                    val["blended_fair_value"] = blended_fv
+                    model_json["valuation"] = val
+                    print(f"Recomputed valuation anchors: DCF={dcf_fv} PE={pe_fv} EV/EBITDA={ev_ebitda_fv} Blended={blended_fv}")
+
+                    # Mirror the refreshed numbers into the Excel's own
+                    # "Valuation" sheet (B3/B4/B5 are plain input cells, not
+                    # formulas) so what a user sees on open matches
+                    # model_json. Uses a SEPARATE data_only=False handle --
+                    # the `wb` object used for all the reads above is loaded
+                    # data_only=True and must never be saved back: doing so
+                    # would flatten every formula in the whole workbook
+                    # (CMP, Rating, all of Financials_Table, etc.) to a
+                    # static number, permanently breaking future recalcs.
+                    if "Valuation" in wb.sheetnames:
+                        try:
+                            wb_edit = openpyxl.load_workbook(excel_path, data_only=False)
+                            ws_val_edit = wb_edit["Valuation"]
+                            ws_val_edit["B3"] = dcf_fv
+                            ws_val_edit["B4"] = pe_fv
+                            if ev_ebitda_fv is not None:
+                                ws_val_edit["B5"] = ev_ebitda_fv
+                            wb_edit.save(excel_path)
+                        except Exception as exc:
+                            print(f"Failed to write refreshed valuation anchors back into Excel: {exc}")
+        except Exception as exc:
+            print(f"Failed to recompute valuation anchors: {exc}")
 
         # Assumptions Sheet
         if "Assumptions" in wb.sheetnames:
