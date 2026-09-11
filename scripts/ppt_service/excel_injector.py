@@ -121,14 +121,49 @@ def _format_cell_value(cell) -> str:
     return str(v)
 
 
-def _read_sheet_data(ws, max_rows: int = 60, max_cols: int = 15) -> tuple[list[list[str]], list[list[dict]], int, int]:
+def _find_year_cutoff_col(ws, year_label: str, search_rows: int = 10, max_scan_cols: int = 20) -> int | None:
+    """Scan the sheet's early rows (title/subtitle + year header, per the
+    _ext_year_header convention) for a cell matching `year_label` exactly
+    (e.g. "FY29E") and return its column index. Lets a caller cap rendering
+    at that column, dropping any later projection years, without touching
+    the underlying model."""
+    target = str(year_label).strip().lower()
+    for r in range(1, search_rows + 1):
+        for c in range(1, max_scan_cols + 1):
+            v = ws.cell(r, c).value
+            if v is not None and str(v).strip().lower() == target:
+                return c
+    return None
+
+
+def _read_sheet_data(
+    ws, max_rows: int = 60, max_cols: int = 15, stop_at_year: str | None = None
+) -> tuple[list[list[str]], list[list[dict]], int, int]:
     """Read sheet into a grid of display strings + style info.
-    
+
+    stop_at_year: if given (e.g. "FY29E"), caps the rendered columns at the
+    column matching that year label in the sheet's header row -- e.g. so a
+    PPT slide shows a shorter horizon than the full underlying model
+    (which projects further out for DCF/terminal-value purposes) without
+    editing the model itself. Falls back to the full range (with a
+    warning) if the label isn't found, rather than silently rendering
+    nothing.
+
     Returns: (data_grid, style_grid, n_rows, n_cols)
     """
     # Find actual used range
     used_rows = min(ws.max_row or 1, max_rows)
     used_cols = min(ws.max_column or 1, max_cols)
+
+    if stop_at_year:
+        cutoff_col = _find_year_cutoff_col(ws, stop_at_year)
+        if cutoff_col:
+            used_cols = min(used_cols, cutoff_col)
+        else:
+            logger.warning(
+                "stop_at_year=%r not found in sheet '%s' header — showing full range",
+                stop_at_year, ws.title,
+            )
 
     # Skip entirely empty leading rows
     first_data_row = 1
@@ -163,16 +198,21 @@ def _read_sheet_data(ws, max_rows: int = 60, max_cols: int = 15) -> tuple[list[l
     return data, styles, len(data), used_cols
 
 
-def render_sheet_as_image(ws, title: str = "", max_rows: int = 55) -> bytes | None:
+def render_sheet_as_image(
+    ws, title: str = "", max_rows: int = 55, stop_at_year: str | None = None
+) -> bytes | None:
     """Render an openpyxl worksheet as a styled PNG table image.
-    
+
+    stop_at_year: see _read_sheet_data — caps displayed projection years
+    (e.g. "FY29E") without touching the underlying model.
+
     Returns PNG bytes, or None if matplotlib unavailable or sheet empty.
     """
     plt, np = _mpl()
     if plt is None:
         return None
 
-    data, styles, n_rows, n_cols = _read_sheet_data(ws, max_rows=max_rows)
+    data, styles, n_rows, n_cols = _read_sheet_data(ws, max_rows=max_rows, stop_at_year=stop_at_year)
     if n_rows == 0 or n_cols == 0:
         return None
 
@@ -261,6 +301,16 @@ def render_all_excel_sheets(excel_path: str) -> dict[str, bytes]:
     logger.info("Excel opened. Sheets: %s", wb.sheetnames)
     results: dict[str, bytes] = {}
 
+    # These three slides should show a shorter horizon than the full
+    # underlying model (which projects further out than this for DCF/
+    # terminal-value purposes) -- capped here, on the PPT-rendering side
+    # only, so the model itself is untouched.
+    YEAR_CUTOFF: dict[str, str] = {
+        "{{earnings_forecast_table}}": "FY29E",
+        "{{financials_table}}": "FY29E",
+        "{{valuations_table}}": "FY29E",
+    }
+
     for token, sheet_names in PLACEHOLDER_SHEET_MAP.items():
         ws = _find_sheet(wb, sheet_names)
         if ws is None:
@@ -269,7 +319,7 @@ def render_all_excel_sheets(excel_path: str) -> dict[str, bytes]:
 
         logger.info("Rendering sheet '%s' for placeholder %s", ws.title, token)
         try:
-            img = render_sheet_as_image(ws, title=ws.title)
+            img = render_sheet_as_image(ws, title=ws.title, stop_at_year=YEAR_CUTOFF.get(token))
             if img:
                 results[token] = img
                 logger.info("Rendered %s → %d bytes", token, len(img))

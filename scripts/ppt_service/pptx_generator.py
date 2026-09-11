@@ -3369,12 +3369,26 @@ def _render_key_risks_table(excel_path: str) -> bytes | None:
     return buf.getvalue()
 
 
+def _find_year_cutoff_col(ws, year_label: str, header_row: int = 4, max_scan_cols: int = 20) -> int | None:
+    """Scan a sheet's year-header row (row 4, per _ext_year_header) for a
+    cell matching `year_label` exactly (e.g. "FY29E") and return its column
+    index -- lets a caller cap rendering at that column, dropping later
+    projection years, without touching the underlying model."""
+    target = str(year_label).strip().lower()
+    for c in range(1, max_scan_cols + 1):
+        v = ws.cell(header_row, c).value
+        if v is not None and str(v).strip().lower() == target:
+            return c
+    return None
+
+
 def _render_formula_sheet_table(
     excel_path: str,
     sheet_name: str,
     *,
     max_row: int,
     max_col: int,
+    stop_at_year: str | None = None,
 ) -> bytes | None:
     from openpyxl import load_workbook
     try:
@@ -3394,6 +3408,16 @@ def _render_formula_sheet_table(
     wb = load_workbook(excel_path, data_only=not use_formula_eval)
     ws = wb[sheet_name]
     cache: dict[tuple[str, str], float] = {}
+
+    if stop_at_year:
+        cutoff_col = _find_year_cutoff_col(ws, stop_at_year)
+        if cutoff_col:
+            max_col = min(max_col, cutoff_col)
+        else:
+            logger.warning(
+                "stop_at_year=%r not found in '%s' header — showing full range",
+                stop_at_year, sheet_name,
+            )
 
     def _is_pct_label(label: str) -> bool:
         ll = label.lower()
@@ -3579,10 +3603,11 @@ def inject_formula_table_slide(
     fallback_text: str,
     max_row: int,
     max_col: int,
+    stop_at_year: str | None = None,
 ) -> int:
     if not excel_path:
         return 0
-    img = _render_formula_sheet_table(excel_path, sheet_name, max_row=max_row, max_col=max_col)
+    img = _render_formula_sheet_table(excel_path, sheet_name, max_row=max_row, max_col=max_col, stop_at_year=stop_at_year)
     if not img:
         return 0
     prs = Presentation(pptx_path)
@@ -5593,6 +5618,7 @@ def generate_pptx_for_report(report_id: str, session_id: str, *, use_mock: bool 
             fallback_text="Earnings forecast — see Excel model for details.",
             max_row=34,
             max_col=11,
+            stop_at_year="FY29E",
         )
         if earnings_table_injections:
             logger.info("Injected %d earnings forecast visuals", earnings_table_injections)
@@ -5606,6 +5632,7 @@ def generate_pptx_for_report(report_id: str, session_id: str, *, use_mock: bool 
             fallback_text="Financials — see Excel model for details.",
             max_row=45,
             max_col=12,
+            stop_at_year="FY29E",
         )
         if financials_table_injections:
             logger.info("Injected %d financials table visuals", financials_table_injections)
@@ -5619,6 +5646,7 @@ def generate_pptx_for_report(report_id: str, session_id: str, *, use_mock: bool 
             fallback_text="Valuations — see Excel model for details.",
             max_row=45,
             max_col=11,
+            stop_at_year="FY29E",
         )
         if valuations_table_injections:
             logger.info("Injected %d valuations table visuals", valuations_table_injections)
@@ -5748,6 +5776,7 @@ def generate_pptx_for_report(report_id: str, session_id: str, *, use_mock: bool 
             fallback_text="Earnings forecast — see Excel model for details.",
             max_row=34,
             max_col=11,
+            stop_at_year="FY29E",
         )
         if earnings_table_injections:
             logger.info("Re-injected %d earnings forecast visuals after cleanup", earnings_table_injections)
@@ -5760,6 +5789,7 @@ def generate_pptx_for_report(report_id: str, session_id: str, *, use_mock: bool 
             fallback_text="Financials — see Excel model for details.",
             max_row=45,
             max_col=12,
+            stop_at_year="FY29E",
         )
         if financials_table_injections:
             logger.info("Re-injected %d financials table visuals after cleanup", financials_table_injections)
@@ -5771,6 +5801,7 @@ def generate_pptx_for_report(report_id: str, session_id: str, *, use_mock: bool 
             token="{{valuations_table}}",
             fallback_text="Valuations — see Excel model for details.",
             max_row=45,
+            stop_at_year="FY29E",
             max_col=11,
         )
         if valuations_table_injections:
