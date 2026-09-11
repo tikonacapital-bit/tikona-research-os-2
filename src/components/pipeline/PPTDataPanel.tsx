@@ -176,14 +176,18 @@ const PLACEHOLDER_GROUPS: GroupDef[] = [
     title: 'Scenario Analysis',
     slide: 'Slide 16',
     fields: [
-      { key: 'valuation_bear', label: 'Bear Case Target ({{valuation_bear}})', type: 'input' },
+      // "bear"/"bull" drive BOTH the slide's headline number and its
+      // "Valuation: X" subtext (see _sync_equivalent_keys in
+      // pptx_generator.py) -- there used to be a separate valuation_bear/
+      // valuation_bull field here too, which let the two go out of sync
+      // (edit one, not the other, and the slide contradicts itself). Removed;
+      // one field per case is now the only way to set its target price.
       { key: 'bear', label: 'Bear Target ({{bear}})', type: 'input' },
       { key: 'bear_p', label: 'Bear Probability', type: 'input', hint: 'e.g. 25%' },
       { key: 'bear_content', label: 'Bear Case Notes', type: 'textarea' },
       { key: 'base', label: 'Base Case Target ({{base}})', type: 'input' },
       { key: 'base_p', label: 'Base Probability', type: 'input', hint: 'e.g. 50%' },
       { key: 'base_content', label: 'Base Case Notes', type: 'textarea' },
-      { key: 'valuation_bull', label: 'Bull Case Target ({{valuation_bull}})', type: 'input' },
       { key: 'bull', label: 'Bull Target ({{bull}})', type: 'input' },
       { key: 'bull_p', label: 'Bull Probability', type: 'input', hint: 'e.g. 25%' },
       { key: 'bull_content', label: 'Bull Case Notes', type: 'textarea' },

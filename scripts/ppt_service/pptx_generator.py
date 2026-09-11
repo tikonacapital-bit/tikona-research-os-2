@@ -1981,6 +1981,17 @@ def _sync_equivalent_keys(d: dict) -> None:
         "key_industry_risks": "key_industry_risk",
         "company_overview": "COMPANY_OVERVIEW",
         "saarthi_summary_s16": "saarthi_summary",
+        # "bull"/"bear" (Slide 16's big headline number) and "valuation_bull"/
+        # "valuation_bear" (the same case's "Valuation: X" subtext) are two
+        # separate template placeholders for what must always be the same
+        # number. The Review PPT Content panel exposes both as independently
+        # editable fields, so editing one (or a stale cs_ppt_data override
+        # from before a report edit) without the other silently produced a
+        # slide contradicting itself -- confirmed live: Bull showed 1,417 as
+        # the headline but "Valuation: 1383" right below it. "base" has no
+        # such duplicate and was the one internally-consistent card.
+        "bull": "valuation_bull",
+        "bear": "valuation_bear",
     }
     # Sync canonical -> alternative
     for canonical, alt in mappings.items():
@@ -3661,19 +3672,43 @@ def _render_probability_weight_table(fin_model: dict) -> bytes | None:
         logger.warning("matplotlib unavailable for probability table render: %s", exc)
         return None
 
-    scenarios = fin_model.get("scenarios") or []
+    # BUG FIX: this was reading fin_model["scenarios"] -- a list written
+    # once by the very first AI generation pass and never refreshed by
+    # "Confirm Financial Model". Only fin_model["scenario_analysis"] (a
+    # dict keyed by bull/base/bear, recalculated from the user's actual
+    # Excel by the FM server's /regenerate-json) is kept fresh. This is the
+    # exact same stale-field bug already fixed for the narrative text and
+    # headline numbers above (see _apply_fresh_scenario) -- this table just
+    # got missed in that pass, which is why it kept showing the default
+    # 25/50/25 probability split instead of the confirmed model's actual
+    # weighting.
+    fresh_scenarios = fin_model.get("scenario_analysis") or {}
     rows: list[list[str]] = [["Scenario", "Target Price", "Probability", "Weighted TP"]]
     weighted_total = 0.0
     added = 0
 
-    for scenario in scenarios:
-        name = str(scenario.get("name", "")).strip().title()
-        tp = _parse_number(scenario.get("target_price") or "") or 0.0
-        prob = _parse_number(scenario.get("probability_pct") or "") or 0.0
-        weighted = round(tp * prob / 100.0, 1)
-        weighted_total += weighted
-        rows.append([name or "-", f"{tp:.1f}", f"{prob:.0f}%", f"{weighted:.1f}"])
-        added += 1
+    if fresh_scenarios:
+        for key in ("bull", "base", "bear"):
+            case = fresh_scenarios.get(key)
+            if not isinstance(case, dict):
+                continue
+            tp = _parse_number(case.get("target_price") or "") or 0.0
+            prob = _parse_number(case.get("probability_pct") or "") or 0.0
+            weighted = round(tp * prob / 100.0, 1)
+            weighted_total += weighted
+            rows.append([key.title(), f"{tp:.1f}", f"{prob:.0f}%", f"{weighted:.1f}"])
+            added += 1
+    else:
+        # No confirmed model -- fall back to the legacy list.
+        scenarios = fin_model.get("scenarios") or []
+        for scenario in scenarios:
+            name = str(scenario.get("name", "")).strip().title()
+            tp = _parse_number(scenario.get("target_price") or "") or 0.0
+            prob = _parse_number(scenario.get("probability_pct") or "") or 0.0
+            weighted = round(tp * prob / 100.0, 1)
+            weighted_total += weighted
+            rows.append([name or "-", f"{tp:.1f}", f"{prob:.0f}%", f"{weighted:.1f}"])
+            added += 1
 
     if not added:
         return None
