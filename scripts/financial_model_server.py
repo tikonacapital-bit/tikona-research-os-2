@@ -905,6 +905,45 @@ def regenerate_json(ticker: str):
         except Exception as exc:
             print(f"Failed to recompute valuation anchors: {exc}")
 
+        # Patch an ALREADY-GENERATED Excel's "P&L" sheet in place: "Chg in
+        # Inventory" (row 5) was being summed as a straight positive cost
+        # into "Total Expenses" (row 11) alongside Raw Material/Employee/
+        # etc., instead of subtracted -- an inventory INCREASE reduces cost
+        # of goods sold, it's a credit, not a cost. Confirmed live against
+        # Screener: Total Expenses (and therefore EBITDA/PBT/PAT) was
+        # overstated by exactly 2x that year's Chg in Inventory value, every
+        # year. financial_model_v5.py now builds this correctly (and more
+        # robustly, deriving historical EBITDA straight from Screener's own
+        # PBT) for brand-new "Generate Financial Model" runs; this patches
+        # the same sign error directly into an existing file's live formula
+        # on Confirm, so models already generated don't need a full,
+        # destructive regenerate just to pick up the fix.
+        try:
+            if "P&L" in wb.sheetnames:
+                # Row 11 = "Total Expenses", row 5 = "Chg in Inventory" --
+                # fixed positions in every model this server has generated
+                # (Revenue=row3, then always exactly 7 expense lines,
+                # rows 4-10). Confirm both labels before touching anything,
+                # so a differently-laid-out file is left untouched rather
+                # than silently corrupted.
+                totexp_label = str(wb["P&L"].cell(11, 1).value or "").strip().lower()
+                chginv_label = str(wb["P&L"].cell(5, 1).value or "").strip().lower()
+                if totexp_label == "total expenses" and chginv_label == "chg in inventory":
+                    wb_pl_edit = openpyxl.load_workbook(excel_path, data_only=False)
+                    ws_pl_edit = wb_pl_edit["P&L"]
+                    patched = 0
+                    for ci in range(2, ws_pl_edit.max_column + 1):
+                        cl = get_column_letter(ci)
+                        existing = ws_pl_edit.cell(11, ci).value
+                        if isinstance(existing, str) and existing.startswith("=") and "-2*" not in existing:
+                            ws_pl_edit.cell(row=11, column=ci, value=f"{existing}-2*{cl}5")
+                            patched += 1
+                    if patched:
+                        wb_pl_edit.save(excel_path)
+                        print(f"Patched P&L Total Expenses formula (Chg in Inventory sign fix) in {patched} column(s)")
+        except Exception as exc:
+            print(f"Failed to patch P&L Total Expenses formula: {exc}")
+
         # Assumptions Sheet
         if "Assumptions" in wb.sheetnames:
             ws_as = wb["Assumptions"]

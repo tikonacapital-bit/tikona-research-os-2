@@ -5556,23 +5556,62 @@ def build_model(screener_path: str, screener_data: dict, model: dict, out_path: 
         exp_rows.append(r)
         r += 1
 
-    ws.cell(row=r, column=1, value="Total Expenses").font = sec_font
-    for ci in range(2, nc + 1):
-        cl = get_column_letter(ci)
-        ws.cell(row=r, column=ci, value=f"=SUM({cl}{exp_rows[0]}:{cl}{exp_rows[-1]})").number_format = INR
-        if ci in p_cols:
-            ws.cell(row=r, column=ci).fill = peach_fill
+    # Row layout from here is fixed (Total Expenses, EBITDA, EBITDA Margin %,
+    # Other Income, Depreciation, EBIT, Finance Cost, PBT) -- precompute all
+    # eight row numbers up front so EBITDA/Total Expenses can reference PBT
+    # even though PBT's own cells are written later in this function. Excel
+    # doesn't care about write order, only Python needs the number ahead of
+    # time. `assert`s below catch it loudly if a future edit to this block
+    # breaks the fixed offsets instead of silently misaligning formulas.
     TOTEXP = r
-    r += 1
+    EBITDA = r + 1
+    OI = r + 3
+    DEP = r + 4
+    EBIT = r + 5
+    INT_R = r + 6
+    PBT = r + 7
 
-    ws.cell(row=r, column=1, value="EBITDA").font = sec_font
+    # BUG FIX: historical EBITDA/Total Expenses used to be rebuilt by summing
+    # the 7 scraped expense sub-lines (Raw Material, Employee Cost, etc.),
+    # including "Chg in Inventory" (exp_rows[1]) as a straight positive cost.
+    # Confirmed live against Screener, two compounding problems:
+    #  1. An inventory INCREASE reduces this period's cost of goods sold
+    #     (unsold production isn't expensed yet) -- it's a credit, not a
+    #     cost. It was being added instead of subtracted, overstating Total
+    #     Expenses by exactly 2x that year's Chg in Inventory value in every
+    #     single year (e.g. +162 on a Chg in Inventory of 81, +391 on 195).
+    #  2. More fundamentally, summing 7 independently-scraped sub-lines is
+    #     fragile -- Screener's own reporting granularity for these can
+    #     shift between years/companies (see the derived_ebitda fallback
+    #     comment elsewhere in this file: "robust to Screener's variable
+    #     expense-line reporting where some sub-lines roll up into 'Other
+    #     expenses' in newer years").
+    # Fix, per product decision: for HISTORICAL columns, stop reconstructing
+    # EBITDA from the fragile sub-line breakdown at all. Derive it straight
+    # from Screener's own top-line figures instead -- the same robust
+    # EBITDA = PBT + Depreciation + Interest - Other Income identity
+    # derived_ebitda() already uses elsewhere -- with PBT scraped directly
+    # from Data Sheet (below) rather than built forward through this
+    # sheet's own EBITDA/EBIT chain. Total Expenses becomes Revenue minus
+    # that EBITDA, for display only; the 7 sub-line rows above stay purely
+    # informational for historical columns.
+    # PROJECTED columns have no future Screener PBT to anchor to, so they
+    # still build forward from assumption % (Revenue -> Total Expenses ->
+    # EBITDA -> EBIT -> PBT), with the same Chg in Inventory sign fix
+    # applied there (subtracted, not summed in).
+    ws.cell(row=TOTEXP, column=1, value="Total Expenses").font = sec_font
+    ws.cell(row=EBITDA, column=1, value="EBITDA").font = sec_font
     for ci in range(2, nc + 1):
         cl = get_column_letter(ci)
-        ws.cell(row=r, column=ci, value=f"={cl}{REV}-{cl}{TOTEXP}").number_format = INR
-        if ci in p_cols:
-            ws.cell(row=r, column=ci).fill = peach_fill
-    EBITDA = r
-    r += 1
+        if ci in h_cols:
+            ws.cell(row=EBITDA, column=ci, value=f"={cl}{PBT}+{cl}{DEP}+{cl}{INT_R}-{cl}{OI}").number_format = INR
+            ws.cell(row=TOTEXP, column=ci, value=f"={cl}{REV}-{cl}{EBITDA}").number_format = INR
+        else:
+            ws.cell(row=TOTEXP, column=ci, value=f"=SUM({cl}{exp_rows[0]}:{cl}{exp_rows[-1]})-2*{cl}{exp_rows[1]}").number_format = INR
+            ws.cell(row=TOTEXP, column=ci).fill = peach_fill
+            ws.cell(row=EBITDA, column=ci, value=f"={cl}{REV}-{cl}{TOTEXP}").number_format = INR
+            ws.cell(row=EBITDA, column=ci).fill = peach_fill
+    r = EBITDA + 1
 
     ws.cell(row=r, column=1, value="EBITDA Margin %")
     for ci in range(2, nc + 1):
@@ -5589,7 +5628,7 @@ def build_model(screener_path: str, screener_data: dict, model: dict, out_path: 
         cl = get_column_letter(ci)
         ws.cell(row=r, column=ci, value=f"='{asn}'!{cl}{A_OI}").number_format = INR
         ws.cell(row=r, column=ci).fill = peach_fill
-    OI = r
+    assert OI == r, f"OI row drifted: expected {OI}, got {r}"
     r += 1
 
     ws.cell(row=r, column=1, value="Depreciation")
@@ -5599,7 +5638,7 @@ def build_model(screener_path: str, screener_data: dict, model: dict, out_path: 
         cl = get_column_letter(ci)
         ws.cell(row=r, column=ci, value=f"='{asn}'!{cl}{A_DEP}").number_format = INR
         ws.cell(row=r, column=ci).fill = peach_fill
-    DEP = r
+    assert DEP == r, f"DEP row drifted: expected {DEP}, got {r}"
     r += 1
 
     ws.cell(row=r, column=1, value="EBIT").font = sec_font
@@ -5608,7 +5647,7 @@ def build_model(screener_path: str, screener_data: dict, model: dict, out_path: 
         ws.cell(row=r, column=ci, value=f"={cl}{EBITDA}+{cl}{OI}-{cl}{DEP}").number_format = INR
         if ci in p_cols:
             ws.cell(row=r, column=ci).fill = peach_fill
-    EBIT = r
+    assert EBIT == r, f"EBIT row drifted: expected {EBIT}, got {r}"
     r += 1
 
     ws.cell(row=r, column=1, value="Finance Cost")
@@ -5618,16 +5657,19 @@ def build_model(screener_path: str, screener_data: dict, model: dict, out_path: 
         cl = get_column_letter(ci)
         ws.cell(row=r, column=ci, value=f"='{asn}'!{cl}{A_INT}").number_format = INR
         ws.cell(row=r, column=ci).fill = peach_fill
-    INT_R = r
+    assert INT_R == r, f"INT_R row drifted: expected {INT_R}, got {r}"
     r += 1
 
     ws.cell(row=r, column=1, value="Profit Before Tax").font = sec_font
     for ci in range(2, nc + 1):
         cl = get_column_letter(ci)
-        ws.cell(row=r, column=ci, value=f"={cl}{EBIT}-{cl}{INT_R}").number_format = INR
-        if ci in p_cols:
+        if ci in h_cols:
+            dc = disp_ds[h_cols.index(ci)]
+            ws.cell(row=r, column=ci, value=f"='Data Sheet'!{dc}{row_map['pbt']}").number_format = INR
+        else:
+            ws.cell(row=r, column=ci, value=f"={cl}{EBIT}-{cl}{INT_R}").number_format = INR
             ws.cell(row=r, column=ci).fill = peach_fill
-    PBT = r
+    assert PBT == r, f"PBT row drifted: expected {PBT}, got {r}"
     r += 1
 
     ws.cell(row=r, column=1, value="Tax")
@@ -6398,8 +6440,15 @@ def compute_derived_facts(model_json: dict, screener_data: dict) -> None:
             return float(v) if v is not None else float(default)
         return float(d or default)
 
+    # "chg_inventory_pct" is handled separately (subtracted, not summed in
+    # with the straight cost lines) -- see the SAME bug fixed in the P&L
+    # sheet's "Total Expenses" formula above. An inventory INCREASE reduces
+    # this period's cost of goods sold, it's a credit against expenses, not
+    # an addition. Summing it in here alongside RM/Employee/etc. double-
+    # errored the projected EBITDA by 2x the chg_inventory_pct contribution,
+    # same sign-flip signature confirmed against Screener for the P&L sheet.
     EXP_KEYS = ("rm_pct", "employee_pct", "power_fuel_pct", "other_mfg_pct",
-                "selling_admin_pct", "other_exp_pct", "chg_inventory_pct")
+                "selling_admin_pct", "other_exp_pct")
 
     proj_revenue: list[float] = []
     proj_ebitda:  list[float] = []
@@ -6410,7 +6459,7 @@ def compute_derived_facts(model_json: dict, screener_data: dict) -> None:
     for yr in proj_years:
         g = a("revenue_growth_pct", yr, 0.0)
         rev = prev_rev * (1.0 + g / 100.0)
-        total_exp = sum(rev * a(k, yr, 0.0) / 100.0 for k in EXP_KEYS)
+        total_exp = sum(rev * a(k, yr, 0.0) / 100.0 for k in EXP_KEYS) - rev * a("chg_inventory_pct", yr, 0.0) / 100.0
         ebitda = rev - total_exp
         ebit   = ebitda + a("other_income_cr", yr, 0.0) - a("depreciation_cr", yr, 0.0)
         pbt    = ebit - a("interest_cr", yr, 0.0)
