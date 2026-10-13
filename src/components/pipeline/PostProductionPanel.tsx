@@ -319,6 +319,7 @@ export default function PostProductionPanel({
     column: string,
     maxAttempts = 20,
     intervalMs = 5000,
+    ignoreValue: string | null = null,
   ): Promise<string | null> => {
     const rid = reportIdRef.current;
     if (!rid) return null;
@@ -331,7 +332,9 @@ export default function PostProductionPanel({
         .single();
 
       const record = data as Record<string, unknown> | null;
-      if (!error && record?.[column]) {
+      // ignoreValue: a regenerate run must not accept the previous result that
+      // is already sitting in the column, only a new value written by n8n.
+      if (!error && record?.[column] && record[column] !== ignoreValue) {
         return record[column] as string;
       }
       if (attempt < maxAttempts) {
@@ -715,6 +718,17 @@ export default function PostProductionPanel({
     const timer = setInterval(() => setVideoElapsedSeconds((p) => p + 1), 1000);
 
     try {
+      // Remember the video that is already stored. On a regenerate the column is
+      // never empty, so without this the poll below returns the old link
+      // immediately and the UI reports success while the new render (10-15 min)
+      // is still running.
+      const { data: previous } = await supabase
+        .from('research_reports')
+        .select('video_file_url')
+        .eq('report_id', reportId)
+        .single();
+      const previousVideoUrl = (previous as { video_file_url: string | null } | null)?.video_file_url ?? null;
+
       // Fire-and-forget: use a 30 s timeout so we don't hang if the n8n
       // webhook is set to "respond when last node finishes" (which would
       // block for ~15 min and trigger a 504 from the reverse proxy / Vercel).
@@ -754,7 +768,7 @@ export default function PostProductionPanel({
 
       // Poll Supabase for the video_file_url column.
       // 240 attempts × 5 s = 20 minutes — enough for a 15-min generation.
-      const url = await pollSupabaseColumn('video_file_url', 240, 5000);
+      const url = await pollSupabaseColumn('video_file_url', 240, 5000, previousVideoUrl);
 
       if (url) {
         setVideoFileUrl(url);
