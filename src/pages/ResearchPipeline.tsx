@@ -1093,7 +1093,9 @@ export default function ResearchPipeline() {
         }
         // Separate cache: the AI PPT copywriting pass (ppt_content_json) also
         // never re-runs on its own once generated — invalidate it too.
-        await clearPptContent(sessionId);
+        if (sessionId) {
+          await clearPptContent(sessionId);
+        }
       } catch {
         toast.error('Failed to save section edit');
       }
