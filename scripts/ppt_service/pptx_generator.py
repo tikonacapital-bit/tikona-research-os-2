@@ -23,6 +23,7 @@ from typing import Any
 from pptx import Presentation
 from pptx.chart.data import CategoryChartData
 from pptx.enum.chart import XL_CHART_TYPE
+from pptx.util import Pt
 from openpyxl.utils import column_index_from_string, get_column_letter
 from openpyxl.utils.cell import coordinate_from_string
 
@@ -240,8 +241,14 @@ def _clean_prose(text: str, *, max_len: int = 500) -> str:
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     if len(cleaned) <= max_len:
         return cleaned
-    # Truncate at word boundary so we don't cut mid-word
     truncated = cleaned[:max_len]
+    # Prefer ending on a full sentence so boxes never end mid-thought.
+    last_stop = max(truncated.rfind(". "), truncated.rfind("! "), truncated.rfind("? "))
+    if truncated.endswith((".", "!", "?")):
+        last_stop = len(truncated) - 1
+    if last_stop > int(max_len * 0.6):
+        return truncated[:last_stop + 1].strip()
+    # Otherwise truncate at word boundary so we don't cut mid-word
     last_space = truncated.rfind(" ")
     if last_space > int(max_len * 0.75):
         return truncated[:last_space].strip()
@@ -1532,7 +1539,7 @@ def map_replacements(company, metadata, fin_model, sections):
 
     thesis_panel_text = _clean_prose(
         "\n\n".join(thesis_parts),
-        max_len=1650,
+        max_len=1300,
     )
     company_overview_text = _clean_prose(company.get("description", ""), max_len=1500)
     business_model_text = _clean_prose(_section_value(sections, "business_model"), max_len=900)
@@ -2244,6 +2251,117 @@ def _write_paragraph_text(paragraph, text: str, saved_font: dict, *, allow_bold:
     run = paragraph.add_run()
     run.text = clean
     _apply_run_font(run, saved_font)
+
+
+_FIT_MIN_PT = 6.0
+_FIT_LINE_SPACING = 1.2
+_fit_font_cache: dict[tuple[str, bool, int], Any] = {}
+
+
+def _fit_measure_font(name: str, bold: bool, size_pt: float):
+    """Return a PIL font for width measurement, or None if no metric-compatible font is found."""
+    key = (name, bold, int(size_pt * 10))
+    if key in _fit_font_cache:
+        return _fit_font_cache[key]
+    font = None
+    try:
+        from PIL import ImageFont
+        candidates = {
+            "calibri": ["calibrib.ttf", "Carlito-Bold.ttf"] if bold else ["calibri.ttf", "Carlito-Regular.ttf"],
+        }.get(name.lower(), [])
+        # Measure at 10x for sub-point precision.
+        for cand in candidates:
+            try:
+                font = ImageFont.truetype(cand, int(round(size_pt * 10)))
+                break
+            except OSError:
+                continue
+    except ImportError:
+        pass
+    _fit_font_cache[key] = font
+    return font
+
+
+def _fit_text_width(text: str, font, size_pt: float, bold: bool) -> float:
+    """Width of `text` in points."""
+    if font is not None:
+        return font.getlength(text) / 10.0
+    return len(text) * size_pt * (0.52 if bold else 0.49)  # Calibri average
+
+
+def _estimate_text_height_pt(text_frame, width_pt: float, scale: float) -> float:
+    total = 0.0
+    for paragraph in text_frame.paragraphs:
+        runs = paragraph.runs
+        if not runs:
+            total += 8 * scale * _FIT_LINE_SPACING
+            continue
+        size = max((r.font.size.pt for r in runs if r.font.size), default=8.0) * scale
+        name = next((r.font.name for r in runs if r.font.name), "Calibri")
+        # Tokens carry their own boldness so `**bold**` runs are measured correctly.
+        tokens: list[tuple[str, bool]] = []
+        for r in runs:
+            for tok in re.findall(r"\S+\s*", r.text):
+                tokens.append((tok, bool(r.font.bold)))
+        lines, cur = 1, 0.0
+        for tok, bold in tokens:
+            w = _fit_text_width(tok, _fit_measure_font(name, bold, size), size, bold)
+            if cur + w > width_pt and cur > 0:
+                lines += 1
+                cur = 0.0
+            cur += w
+        total += lines * size * _FIT_LINE_SPACING
+    return total
+
+
+def _fit_text_frame(shape) -> None:
+    """Shrink font sizes (never grow) so the text fits inside the shape.
+
+    The template uses `noAutofit`, so long generated copy overflows and gets
+    clipped. This measures the text and scales every run down uniformly, down
+    to `_FIT_MIN_PT`.
+    """
+    tf = getattr(shape, "text_frame", None)
+    if tf is None or not tf.text.strip() or not shape.width or not shape.height:
+        return
+    body = tf._txBody.bodyPr
+    l = int(body.get("lIns", 91440)); r = int(body.get("rIns", 91440))
+    t = int(body.get("tIns", 45720)); b = int(body.get("bIns", 45720))
+    width_pt = (shape.width - l - r) / 12700.0
+    height_pt = (shape.height - t - b) / 12700.0
+    if width_pt <= 0 or height_pt <= 0:
+        return
+    sizes = [run.font.size.pt for p in tf.paragraphs for run in p.runs if run.font.size]
+    if not sizes:
+        return
+    base_min = min(sizes)
+    floor = min(_FIT_MIN_PT, base_min)
+    scale = 1.0
+    while scale * base_min > floor and _estimate_text_height_pt(tf, width_pt, scale) > height_pt:
+        scale -= 0.02
+    if scale >= 1.0:
+        return
+    scale = max(scale, floor / base_min)
+    for p in tf.paragraphs:
+        for run in p.runs:
+            if run.font.size:
+                run.font.size = Pt(round(run.font.size.pt * scale * 2) / 2)  # half-point steps
+
+
+def _equalize_font_sizes(shapes: list) -> None:
+    """Give sibling boxes one shared font size (the smallest after fitting) so a card grid looks uniform."""
+    sizes = [
+        run.font.size.pt
+        for s in shapes if s.has_text_frame
+        for p in s.text_frame.paragraphs for run in p.runs if run.font.size
+    ]
+    if len(shapes) < 2 or not sizes:
+        return
+    target = Pt(min(sizes))
+    for s in shapes:
+        for p in s.text_frame.paragraphs:
+            for run in p.runs:
+                run.font.size = target
 
 
 def _replace_text_in_frame(text_frame, replacements: dict) -> None:
@@ -5152,6 +5270,7 @@ def fill_master_template(
         # Shapes marked for image insertion must be processed after iteration
         # (removing while iterating breaks the list).  Collect them first.
         image_insertions: list[tuple] = []  # (shape, img_bytes)
+        peer_boxes: list = []  # sibling text boxes that must share one font size
 
         for shape in slide.shapes:
             shape_name = (shape.name or "").lower().strip()
@@ -5210,7 +5329,12 @@ def fill_master_template(
                     continue
                 if slide_idx == 10 and shape.text_frame.text.strip() == "{{catalyst_timeline_chart}}":
                     continue
+                if re.fullmatch(r"\{\{investment_ideas_\d+\}\}", shape.text_frame.text.strip()):
+                    peer_boxes.append(shape)
                 _replace_text_in_frame(shape.text_frame, replacements)
+                _fit_text_frame(shape)
+
+        _equalize_font_sizes(peer_boxes)
 
         # ── 5. Insert queued chart images (after shape iteration is done) ──────
         for shape, img_bytes in image_insertions:
